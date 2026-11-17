@@ -168,7 +168,7 @@ só o servidor do HUB lê e grava.
 - **Relatórios:** escolha o período e baixe um **Excel por sistema** ou um geral. Cada sistema tem uma aba do
   solicitante e uma da central, ligadas pelo código do pedido, mais abas de detalhe. O das Solicitações traz a conversa completa.
 - **Inteligência artificial:** escolha quem lê as fotos: desligada (modo manual), qualquer serviço com API
-  compatível com OpenAI (OpenAI, Gemini, Azure, OpenRouter, Ollama), a demonstração ou um conector próprio.
+  compatível com OpenAI (**DeepSeek**, OpenAI, Gemini, Azure, OpenRouter, Ollama), a demonstração ou um conector próprio.
   Liga e desliga por sistema, botão **Testar conexão** e contagem de uso. A chave da API fica **criptografada**.
 
 ## 🧱 Criar um novo sistema

@@ -18,6 +18,7 @@ import { cifrar, decifrar } from './segredo.js';
 const PASTA = path.join(import.meta.dirname, '..', 'ai-providers');
 
 export const PRESETS = [
+  { id: 'deepseek', nome: 'DeepSeek', url: 'https://api.deepseek.com', modelo: 'deepseek-flash', auth: 'bearer' },
   { id: 'openai', nome: 'OpenAI', url: 'https://api.openai.com/v1', modelo: 'gpt-4o-mini', auth: 'bearer' },
   { id: 'gemini', nome: 'Google Gemini', url: 'https://generativelanguage.googleapis.com/v1beta/openai', modelo: 'gemini-2.0-flash', auth: 'bearer' },
   { id: 'azure', nome: 'Azure OpenAI', url: 'https://<recurso>.openai.azure.com/openai/deployments/<implantacao>', modelo: '', auth: 'api-key' },
@@ -43,6 +44,11 @@ function lerConfig() {
   if (Date.now() - lidaEm > 30_000) { lidaEm = Date.now(); aiCarregar().catch((e) => console.error('[IA] falha ao reler a configuração:', e.message)); }
   if (memoria) return memoria;
   const env = (process.env.QIMA_AI_PROVIDER || '').trim();
+  // Sem nada salvo na Administração: a chave do DeepSeek no ambiente (Vercel/.env) liga a leitura por IA.
+  const deepseek = (process.env.DEEPSEEK_API_KEY || '').trim();
+  if (!env && deepseek) {
+    return { provedor: 'openai', url: 'https://api.deepseek.com', modelo: (process.env.QIMA_AI_MODEL || 'deepseek-flash').trim(), auth: 'bearer', timeout_s: 60, chave: cifrar(deepseek), sistemas: {}, salvo: false };
+  }
   return { provedor: env ? (env === 'demo' ? 'demo' : `arquivo:${env}`) : 'nenhum', sistemas: {}, salvo: false };
 }
 
