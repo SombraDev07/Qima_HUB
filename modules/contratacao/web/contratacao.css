@@ -1,0 +1,94 @@
+/* Contratação — paleta padrão do HUB. Prefixo ct- */
+.ct-m0 { margin: 0; }
+.ct-mb { margin-bottom: 14px; }
+.ct-h3 { font-size: 16px; }
+.ct-h4 { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 16px 0 6px; }
+.ct-mono { font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; }
+.ct-link { background: none; border: none; padding: 0; font: inherit; color: #0c303e; font-weight: 600; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+.ct-link:disabled { color: #9ca3af; text-decoration: none; }
+.ct-pend { color: #b42318; font-weight: 600; }
+.ct-ok { color: #0f7a4b; font-weight: 600; }
+.ct-obs { max-width: 260px; }
+.ct-movel { font-weight: 600; color: #0c303e; }
+.ct-nowrap { white-space: nowrap; }
+.ct-cpf-bad { color: #b42318; font-weight: 700; }
+.ct-acts { display: inline-flex; gap: 6px; align-items: center; justify-content: flex-end; flex-wrap: wrap; }
+.ct-filtros { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end; margin-bottom: 14px; }
+.ct-ordem { height: 38px; }
+.ct-checks { display: flex; gap: 18px; flex-wrap: wrap; align-items: center; margin: 4px 0 10px; }
+.ct-scroll { max-height: 55vh; overflow: auto; border: 1px solid var(--line); border-radius: 8px; }
+.ct-pager { display: flex; justify-content: space-between; padding: 12px 16px; font-size: 13px; color: var(--muted); border-top: 1px solid var(--line); }
+
+.ct-table th { background: #0c303e; color: #fff; border-bottom: none; white-space: nowrap; }
+.ct-table tbody tr:nth-child(even) td { background: #fafbfc; }
+.ct-table td.cell-strong { white-space: nowrap; }
+.ct-row-novo td { background: #fff8e6 !important; }
+
+/* status / situação / pessoa */
+.ct-status { display: inline-block; font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 6px; white-space: nowrap; }
+.ct-st-warning { background: #fdebe6; color: #b42318; }
+.ct-st-info { background: #e8f0fb; color: #1d4f91; }
+.ct-st-roxo { background: #f1e8fb; color: #6b21a8; }
+.ct-st-success { background: #e3f5ea; color: #0f7a4b; }
+.ct-st-brand { background: #fde6ea; color: #9b1c1c; }
+.ct-st-muted { background: #f3f4f6; color: var(--muted); }
+.ct-sit { font-size: 12.5px; font-weight: 700; }
+.ct-sit-atraso, .ct-sit-urgente { color: #b42318; }
+.ct-sit-novo { color: #0f7a4b; }
+.ct-sit-antigo { color: #9a3412; }
+.ct-pst { font-size: 12.5px; font-weight: 600; }
+.ct-pst-livre { color: #0f7a4b; }
+.ct-pst-anexado { color: #c2410c; }
+.ct-pst-contratado { color: #1d4f91; }
+.ct-pst-demitido { color: #b42318; }
+
+/* indicadores */
+.ct-kpis { display: grid; grid-template-columns: repeat(5, minmax(140px, 1fr)); gap: 12px; margin-bottom: 16px; }
+.ct-kpi { background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; text-align: left; font: inherit; cursor: pointer; display: grid; gap: 2px; box-shadow: var(--shadow); }
+.ct-kpi span { font-size: 12px; color: var(--muted); font-weight: 600; }
+.ct-kpi b { font-size: 22px; color: var(--ink); }
+.ct-kpi:hover { border-color: #b8c4cd; }
+.ct-kpi.on { border-color: #0c303e; box-shadow: inset 0 -3px 0 var(--brand); }
+
+/* formulário do solicitante */
+.ct-form-wrap { display: grid; place-items: start center; }
+.ct-form { width: min(720px, 100%); padding: 0; overflow: hidden; }
+.ct-form-head { background: #0c303e; color: #fff; font-size: 20px; font-weight: 700; text-align: center; padding: 16px; }
+.ct-form-body { padding: 22px 28px 26px; }
+.ct-req { display: grid; grid-template-columns: 1.4fr 1fr 1fr; gap: 14px; align-items: end; }
+.ct-form-acoes { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin-top: 6px; }
+.ct-seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.ct-seg button { font: inherit; font-size: 13.5px; border: none; background: #fff; padding: 8px 14px; cursor: pointer; }
+.ct-seg button.on { background: #0c303e; color: #fff; }
+
+/* detalhe da vaga */
+.ct-vaga { display: grid; grid-template-columns: 340px 1fr; gap: 20px; align-items: start; }
+.ct-vaga-num b { font-size: 34px; color: var(--ink); margin-right: 6px; }
+.ct-vaga-num span { color: var(--muted); }
+.ct-prog { height: 8px; background: #e5eaee; border-radius: 99px; overflow: hidden; margin-top: 8px; }
+.ct-prog span { display: block; height: 100%; background: #0c303e; }
+.ct-hist { max-height: 260px; overflow-y: auto; display: grid; gap: 4px; }
+.ct-sec-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+.ct-st-select { width: auto; height: 34px; padding: 4px 8px; font-size: 13px; }
+
+/* ficha / demissões */
+.ct-dl { display: grid; grid-template-columns: 150px 1fr; gap: 5px 14px; margin: 8px 0; font-size: 14px; }
+.ct-dl dt { color: var(--muted); }
+.ct-dl dd { margin: 0; }
+.ct-cols { display: block; background: #f3f5f7; padding: 8px 10px; border-radius: 6px; font-size: 12.5px; }
+.ct-file { width: fit-content; cursor: pointer; }
+.ct-dems { display: grid; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); gap: 14px; }
+.ct-dem-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.ct-dem-pendente { border-left: 4px solid #d99a1e; }
+.ct-dem-aceita { border-left: 4px solid #b42318; }
+.ct-dem-recusada { border-left: 4px solid #9ca3af; }
+
+@media (max-width: 1100px) {
+  .ct-kpis { grid-template-columns: repeat(3, 1fr); }
+  .ct-vaga { grid-template-columns: 1fr; }
+}
+@media (max-width: 700px) {
+  .ct-kpis { grid-template-columns: 1fr 1fr; }
+  .ct-req { grid-template-columns: 1fr 1fr; }
+  .ct-dems { grid-template-columns: 1fr; }
+}

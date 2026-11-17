@@ -1,0 +1,121 @@
+// Componentes e utilitários específicos do Hospedagens.
+// Os genéricos (toast, modal, formatação, filtros, CSV) vêm do núcleo (@hub).
+import { useEffect, useState } from 'react';
+import { X, Search, UserPlus, Plus } from 'lucide-react';
+import { Badge, Button, norm, useToast } from '@hub';
+
+export {
+  fmtDate, fmtShort, fmtDateTime, money, num, norm, todayISO, addDays, uniq,
+  ToastProvider, useToast, useAction, Modal, FiltroSelect, exportCsv,
+} from '@hub';
+
+export const PEDIDO_STATUS = {
+  rascunho: { label: 'Rascunho', tone: 'muted' },
+  pendente: { label: 'Solicitado', tone: 'warning' },
+  ajustado: { label: 'Ajustado', tone: 'warning' },
+  em_andamento: { label: 'Em andamento', tone: 'info' },
+  finalizado: { label: 'Finalizado', tone: 'success' },
+  cancelado: { label: 'Cancelado', tone: 'muted' },
+};
+export const SITUACAO = {
+  novo: { label: 'Novo', tone: 'neutral' },
+  enviado: { label: 'Reservado', tone: 'info' },
+  alterado: { label: 'Alterado', tone: 'warning' },
+  prorrogado: { label: 'Prorrogado', tone: 'brand' },
+  finalizado: { label: 'Finalizado', tone: 'success' },
+};
+export const AJUSTE = {
+  cancelar: 'Cancelar',
+  prorrogar: 'Prorrogar',
+  checkout: 'Check-out',
+  editar: 'Editar',
+  cancelar_pedido: 'Cancelar pedido',
+};
+
+export const PedidoBadge = ({ s }) => <Badge tone={PEDIDO_STATUS[s]?.tone}>{PEDIDO_STATUS[s]?.label || s}</Badge>;
+export const SituacaoBadge = ({ s }) => <Badge tone={SITUACAO[s]?.tone}>{SITUACAO[s]?.label || s}</Badge>;
+
+// ------------------------------------------------------------------ cidade (IBGE) — vem do núcleo
+export { CidadeInput, cidadeValida, cidadeOficial, UFS } from '@hub';
+
+// ------------------------------------------------------------------ seletor de hóspedes (pessoas + Open)
+export function HospedesPicker({ api, value, onChange }) {
+  const [q, setQ] = useState('');
+  const [res, setRes] = useState([]);
+  const [novo, setNovo] = useState(null);
+  const [openQtd, setOpenQtd] = useState(1);
+  const toast = useToast();
+
+  useEffect(() => {
+    const t = setTimeout(() => {
+      api.get(`/pessoas?q=${encodeURIComponent(q)}`).then(setRes).catch(() => setRes([]));
+    }, 200);
+    return () => clearTimeout(t);
+  }, [q]);
+
+  const has = (nome) => value.some((v) => norm(v.nome) === norm(nome));
+  const add = (p) => {
+    if (has(p.nome)) return toast(`${p.nome} já está na lista.`, 'erro');
+    onChange([...value, { pessoa_id: p.id, nome: p.nome, email: p.email, tipo: 'colaborador' }]);
+  };
+  const addOpen = () => {
+    const n = Math.min(Math.max(1, Number(openQtd) || 1), 30);
+    let base = value.reduce((m, v) => Math.max(m, Number((v.nome.match(/^Open_(\d+)$/) || [])[1]) || 0), 0);
+    const novos = Array.from({ length: n }, () => ({ nome: `Open_${++base}`, tipo: 'open' }));
+    onChange([...value, ...novos]);
+  };
+  const cadastrar = async () => {
+    try {
+      const p = await api.post('/pessoas', novo);
+      add(p);
+      setNovo(null);
+    } catch (e) {
+      toast(e.message, 'erro');
+    }
+  };
+
+  return (
+    <div className="hs-picker">
+      <div className="hs-chips">
+        {value.map((v, i) => (
+          <span key={v.nome + i} className={`hs-chip ${v.tipo === 'open' ? 'hs-chip-open' : ''}`}>
+            {v.nome}
+            <button type="button" onClick={() => onChange(value.filter((_, j) => j !== i))} aria-label={`Remover ${v.nome}`}><X size={13} /></button>
+          </span>
+        ))}
+        {!value.length && <span className="muted small">Nenhuma pessoa anexada.</span>}
+      </div>
+
+      <div className="hs-picker-tools">
+        <div className="search">
+          <Search size={16} />
+          <input placeholder="Buscar no banco de pessoas (nome, função, cidade)" value={q} onChange={(e) => setQ(e.target.value)} />
+        </div>
+        <div className="hs-open">
+          <input type="number" min={1} max={30} value={openQtd} onChange={(e) => setOpenQtd(e.target.value)} aria-label="Quantidade de vagas Open" />
+          <Button type="button" variant="outline" onClick={addOpen}><Plus size={15} /> Open</Button>
+        </div>
+        <Button type="button" variant="outline" onClick={() => setNovo({ nome: q, email: '' })}><UserPlus size={15} /> Cadastrar</Button>
+      </div>
+
+      {novo && (
+        <div className="hs-novo-pessoa">
+          <input placeholder="Nome completo" value={novo.nome} onChange={(e) => setNovo({ ...novo, nome: e.target.value })} />
+          <input placeholder="E-mail (opcional)" value={novo.email} onChange={(e) => setNovo({ ...novo, email: e.target.value })} />
+          <Button type="button" onClick={cadastrar}>Salvar e anexar</Button>
+          <Button type="button" variant="outline" onClick={() => setNovo(null)}>Cancelar</Button>
+        </div>
+      )}
+
+      <div className="hs-pessoas">
+        {res.map((p) => (
+          <button type="button" key={p.id} className={`hs-pessoa ${has(p.nome) ? 'on' : ''}`} onClick={() => add(p)} disabled={has(p.nome)}>
+            <b>{p.nome}</b>
+            <span className="muted small">{[p.funcao, p.cidade, p.email].filter(Boolean).join(' · ') || 'Sem detalhes'}</span>
+          </button>
+        ))}
+        {!res.length && <span className="muted small">Nenhuma pessoa encontrada. Use “Cadastrar” ou adicione vagas “Open”.</span>}
+      </div>
+    </div>
+  );
+}

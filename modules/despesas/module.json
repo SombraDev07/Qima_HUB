@@ -1,0 +1,11 @@
+{
+  "key": "despesas",
+  "title": "Despesas",
+  "description": "Lançamento e reembolso de despesas de viagem e campo",
+  "icon": "receipt",
+  "version": "1.0.0",
+  "order": 7,
+  "defaultStatus": "ativo",
+  "ia": "Lê valor, data, tipo e dados da nota na foto do comprovante",
+  "labels": { "solicitante": "Minhas despesas", "central": "Central Financeiro" }
+}

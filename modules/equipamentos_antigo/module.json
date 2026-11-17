@@ -1,0 +1,10 @@
+{
+  "key": "equipamentos_antigo",
+  "title": "Equipamentos (antigo)",
+  "description": "Solicitação e cadastro de equipamentos (versão SharePoint)",
+  "icon": "tablet-smartphone",
+  "version": "0.1.0",
+  "order": 6,
+  "defaultStatus": "em_breve",
+  "labels": { "solicitante": "Solicitar", "central": "Cadastro" }
+}

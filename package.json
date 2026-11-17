@@ -1,0 +1,31 @@
+{
+  "name": "qima-hub",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "registro": "node scripts/gerar-registro.mjs",
+    "predev": "node scripts/gerar-registro.mjs",
+    "prestart": "node scripts/gerar-registro.mjs",
+    "prebuild": "node scripts/gerar-registro.mjs",
+    "migrate": "node scripts/gerar-registro.mjs && node --env-file-if-exists=.env scripts/migrate.mjs",
+    "dev": "concurrently -k -n api,web -c red,blue \"node --env-file-if-exists=.env --watch core/server/index.js --port=3001\" \"vite\"",
+    "build": "vite build",
+    "start": "node --env-file-if-exists=.env core/server/index.js",
+    "seed": "node scripts/seed-demo.mjs && node scripts/seed-despesas.mjs && node scripts/seed-nota-nf.mjs && node scripts/seed-contratacao.mjs && node scripts/seed-frotas.mjs && node scripts/seed-solicitacoes.mjs"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "postgres": "^4.1.1"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.16",
+    "@vitejs/plugin-react": "^4.3.4",
+    "concurrently": "^9.1.0",
+    "lucide-react": "^0.460.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.28.0",
+    "vite": "^5.4.11"
+  }
+}

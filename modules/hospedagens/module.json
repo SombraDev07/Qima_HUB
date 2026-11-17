@@ -1,0 +1,10 @@
+{
+  "key": "hospedagens",
+  "title": "Hospedagens",
+  "description": "Gestão de hospedagens",
+  "icon": "bed-double",
+  "version": "2.0.0",
+  "order": 3,
+  "defaultStatus": "ativo",
+  "labels": { "solicitante": "Solicitar/Cancelar", "central": "Central viagens" }
+}

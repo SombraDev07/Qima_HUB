@@ -1,0 +1,10 @@
+{
+  "key": "contratacao",
+  "title": "Contratação",
+  "description": "Gestão de vagas e candidatos",
+  "icon": "users",
+  "version": "1.0.0",
+  "order": 1,
+  "defaultStatus": "ativo",
+  "labels": { "solicitante": "Minhas Vagas", "central": "Central RH" }
+}

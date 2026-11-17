@@ -1,0 +1,11 @@
+{
+  "key": "nota_nf",
+  "title": "Nota NF",
+  "description": "NFs de semente de soja: produtor, cultivar, quantidade e germinação",
+  "icon": "file-text",
+  "version": "1.0.0",
+  "order": 8,
+  "defaultStatus": "ativo",
+  "ia": "Lê emitente, produtor, chave de acesso e os itens de semente da NF",
+  "labels": { "solicitante": "Minhas notas", "central": "Central Fiscal" }
+}

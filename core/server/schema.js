@@ -1,0 +1,92 @@
+﻿// Tabelas do núcleo (core) no Postgres. Cada sistema cria as suas próprias, com prefixo "<chave>_".
+// Roda na partida do servidor (desenvolvimento) ou com "npm run migrate" (produção/Vercel).
+import { pg } from './pg.js';
+
+const TABELAS = ['users', 'sessions', 'modules', 'user_modules', 'outbox', 'settings', 'ai_uso', 'module_migrations'];
+
+const SQL = `
+CREATE TABLE IF NOT EXISTS users (
+  id            SERIAL PRIMARY KEY,
+  name          TEXT NOT NULL,
+  email         TEXT NOT NULL,
+  password_hash TEXT NOT NULL,
+  is_admin      BOOLEAN NOT NULL DEFAULT FALSE,
+  active        BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS users_email ON users (lower(email));
+
+-- Sessões por cookie (saem quando o login passar para o Supabase Auth)
+CREATE TABLE IF NOT EXISTS sessions (
+  id         TEXT PRIMARY KEY,
+  user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  expires_at BIGINT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS sessions_user ON sessions (user_id);
+
+-- Estado administrável de cada módulo (o resto vem do module.json)
+CREATE TABLE IF NOT EXISTS modules (
+  key        TEXT PRIMARY KEY,
+  status     TEXT NOT NULL DEFAULT 'em_breve' CHECK (status IN ('ativo','em_breve')),
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  enabled    BOOLEAN NOT NULL DEFAULT TRUE
+);
+
+-- Quem vê qual card e com qual papel
+CREATE TABLE IF NOT EXISTS user_modules (
+  user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  module_key TEXT NOT NULL,
+  role       TEXT NOT NULL CHECK (role IN ('solicitante','central','ambos')),
+  PRIMARY KEY (user_id, module_key)
+);
+CREATE INDEX IF NOT EXISTS user_modules_mod ON user_modules (module_key, role);
+
+-- Caixa de saída de e-mails (todos os módulos)
+CREATE TABLE IF NOT EXISTS outbox (
+  id          SERIAL PRIMARY KEY,
+  module_key  TEXT NOT NULL,
+  to_email    TEXT NOT NULL,
+  subject     TEXT NOT NULL,
+  html        TEXT NOT NULL,
+  status      TEXT NOT NULL DEFAULT 'pendente',
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  sent_at     TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS outbox_status ON outbox (status, id);
+
+-- Configurações gerais do HUB (ex.: 'ia' = JSON da leitura por IA)
+CREATE TABLE IF NOT EXISTS settings (
+  key        TEXT PRIMARY KEY,
+  value      TEXT NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_by TEXT
+);
+
+-- Registro de cada leitura feita pela IA (uso e falhas por sistema)
+CREATE TABLE IF NOT EXISTS ai_uso (
+  id         SERIAL PRIMARY KEY,
+  module_key TEXT,
+  provedor   TEXT,
+  ok         BOOLEAN NOT NULL,
+  ms         INTEGER,
+  erro       TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS ai_uso_data ON ai_uso (created_at);
+
+-- Controle de versão do banco de cada módulo já migrado para o Postgres
+CREATE TABLE IF NOT EXISTS module_migrations (
+  module_key TEXT NOT NULL,
+  version    INTEGER NOT NULL,
+  applied_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (module_key, version)
+);
+`;
+
+export async function migrarNucleo() {
+  await pg.exec(SQL);
+  // No Supabase as tabelas ficam visíveis pela API pública dele. Com RLS ligado e nenhuma
+  // política, só o servidor do HUB (dono das tabelas) consegue ler e gravar.
+  await pg.exec(TABELAS.map((t) => `ALTER TABLE ${t} ENABLE ROW LEVEL SECURITY;`).join('\n'));
+}
+

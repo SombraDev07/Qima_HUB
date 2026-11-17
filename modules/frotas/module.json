@@ -1,0 +1,10 @@
+{
+  "key": "frotas",
+  "title": "Frotas",
+  "description": "Pedidos de veículos, reservas, chamados e controle da frota",
+  "icon": "car",
+  "version": "1.0.0",
+  "order": 4,
+  "defaultStatus": "ativo",
+  "labels": { "solicitante": "Meus Veículos", "central": "Central de Frota" }
+}

@@ -1,0 +1,10 @@
+{
+  "key": "equipamentos",
+  "title": "Equipamentos",
+  "description": "Solicitação e gestão de equipamentos",
+  "icon": "tablet",
+  "version": "0.1.0",
+  "order": 2,
+  "defaultStatus": "em_breve",
+  "labels": { "solicitante": "Meus equipamentos", "central": "Central ADM" }
+}

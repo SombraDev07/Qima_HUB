@@ -1,0 +1,10 @@
+{
+  "key": "NOME_DA_PASTA",
+  "title": "Nome do sistema",
+  "description": "Descrição curta exibida no card",
+  "icon": "package",
+  "version": "0.1.0",
+  "order": 99,
+  "defaultStatus": "em_breve",
+  "labels": { "solicitante": "Minhas solicitações", "central": "Central" }
+}

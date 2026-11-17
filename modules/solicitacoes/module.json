@@ -1,0 +1,10 @@
+{
+  "key": "solicitacoes",
+  "title": "Solicitações",
+  "description": "Exclusão de carga, inserção de dados e acumulado",
+  "icon": "clipboard-pen",
+  "version": "1.0.0",
+  "order": 5,
+  "defaultStatus": "ativo",
+  "labels": { "solicitante": "Minhas solicitações", "central": "Central Harvest" }
+}
