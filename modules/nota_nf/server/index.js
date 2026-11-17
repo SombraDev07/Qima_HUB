@@ -11,11 +11,12 @@ import { lerNF } from './ia.js';
 import {
   RuleError, isDate, hoje, soDigitos, fmtDoc, parseNumero, codigoNota, UFS, ids,
   classificarItem, totais, config, log, logs, duplicadosDe, alertas, chaveInfo, chaveValida, STATUS_LABEL,
+  DISTRITOS, PARAMETROS, potencial, somaPotencial, folhaPotencial,
 } from './regras.js';
 
 const MIMES = { 'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp', 'application/pdf': '.pdf' };
 const MAX_UPLOAD = 20 * 1024 * 1024;
-const CAMPOS = ['numero_nf', 'serie', 'chave_acesso', 'emitente_nome', 'emitente_doc', 'produtor_nome', 'produtor_doc', 'data_emissao', 'municipio', 'uf', 'peso_liquido', 'obs_solicitante'];
+const CAMPOS = ['numero_nf', 'serie', 'chave_acesso', 'emitente_nome', 'emitente_doc', 'produtor_nome', 'produtor_doc', 'data_emissao', 'municipio', 'uf', 'peso_liquido', 'distrito', 'obs_solicitante'];
 /** Nome da foto dentro do ZIP e na coluna "Arquivo" do Excel: "NF 765432 - Produtor Fulano (NF-00005).jpg" (o código garante nome único). */
 const limpaNome = (s) => String(s || '').replace(/[\\/:*?"<>|\r\n\t]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 70);
 const nomeFoto = (n) => `NF ${n.numero_nf || 's-n'} - ${limpaNome(n.produtor_nome) || 'sem produtor'} (${n.codigo})${MIMES[n.mime] || ''}`;
@@ -97,13 +98,14 @@ export default {
       const [cfg, itens, dups] = await Promise.all([config(t), itensPorNota(t, notas), duplicadosDe(t, notas)]);
       const historico = completo ? await t.all(`SELECT * FROM nota_nf_historico WHERE nota_id IN (${ids(notas.map((n) => n.id))}) ORDER BY id DESC`) : [];
       return notas.map((n) => {
-        const its = itens.get(n.id);
+        const pot = potencial(itens.get(n.id), n, cfg);
+        const its = itens.get(n.id).map((i, k) => ({ ...i, spu_efetivo: pot[k].spu, spu_origem: pot[k].origem, area_potencial: pot[k].area_potencial, volume_potencial: pot[k].volume_potencial }));
         const ch = chaveInfo(n.chave_acesso);
         return {
           ...n, ia_json: undefined,
           emitente_doc_fmt: fmtDoc(n.emitente_doc), produtor_doc_fmt: fmtDoc(n.produtor_doc),
           chave_ok: chaveValida(n.chave_acesso), chave_uf: ch?.uf || null,
-          itens: its, totais: totais(its), alertas: alertas(n, its, cfg, dups.get(n.id).length),
+          itens: its, totais: { ...totais(its), ...somaPotencial(pot) }, alertas: alertas(n, its, cfg, dups.get(n.id).length),
           duplicados: completo ? dups.get(n.id) : undefined,
           historico: completo ? historico.filter((x) => x.nota_id === n.id) : undefined,
         };
@@ -129,6 +131,7 @@ export default {
         else if (['chave_acesso', 'emitente_doc', 'produtor_doc'].includes(k)) v = soDigitos(v) || null;
         else if (k === 'data_emissao') { if (v && !isDate(v)) throw new RuleError('Data de emissão inválida.'); v = v || null; }
         else if (k === 'uf') { v = String(v || '').toUpperCase(); if (v && !UFS.includes(v)) throw new RuleError('UF inválida.'); v = v || null; }
+        else if (k === 'distrito') { v = String(v || '').trim(); if (v && !DISTRITOS.includes(v)) throw new RuleError('Distrito inválido.'); v = v || null; }
         else if (k === 'peso_liquido') v = parseNumero(v);
         else v = String(v ?? '').trim() || null;
         out[k] = v;
@@ -145,7 +148,7 @@ export default {
       return mud;
     }
 
-    r.get('/config', ler(async () => ({ ...(await config(db)), ia: ai.status(), ufs: UFS })));
+    r.get('/config', ler(async () => ({ ...(await config(db)), ia: ai.status(), ufs: UFS, distritos: DISTRITOS })));
 
     // TODO(migração): os arquivos ainda ficam em disco local; passam para o Supabase Storage na etapa de arquivos.
     r.get('/arquivo/:id', async (req, res) => {
@@ -229,11 +232,12 @@ export default {
       arquivos.apagar(n.arquivo);
     }));
 
-    function validarEnvio(n, itens) {
+    function validarEnvio(n, itens, { exigeDistrito = false } = {}) {
       if (!n.numero_nf) throw new RuleError(`${n.codigo}: informe o número da NF.`);
       if (!n.emitente_nome) throw new RuleError(`${n.codigo}: informe o emitente.`);
       if (!n.produtor_nome) throw new RuleError(`${n.codigo}: informe o produtor.`);
       if (!isDate(n.data_emissao)) throw new RuleError(`${n.codigo}: informe a data de emissão.`);
+      if (exigeDistrito && !n.distrito) throw new RuleError(`${n.codigo}: escolha o distrito.`);
       const inc = itens.filter((i) => i.incluido);
       if (!inc.length) throw new RuleError(`${n.codigo}: nenhum item de semente de soja.`);
       if (inc.some((i) => !(i.quantidade > 0))) throw new RuleError(`${n.codigo}: há item de soja sem quantidade.`);
@@ -248,7 +252,7 @@ export default {
       const itens = await itensPorNota(t, notas);
       for (const n of notas) {
         if (n.dono_id !== req.user.id || n.status !== 'rascunho') throw new RuleError('Uma das NFs não pode ser enviada.');
-        validarEnvio(n, itens.get(n.id));
+        validarEnvio(n, itens.get(n.id), { exigeDistrito: true });
       }
       await t.run(`UPDATE nota_nf_notas SET status = 'aguardando', enviado_at = now(), updated_at = now() WHERE id IN (${ids(sel)})`);
       const subst = notas.filter((n) => n.substitui_id).map((n) => n.substitui_id);
@@ -323,11 +327,23 @@ export default {
       await log(t, n.id, req.user, 'Observação da central', obs || '(removida)');
     }));
 
+    // Parâmetros do sistema (só os enviados são alterados). As faixas aceitas evitam erro de digitação.
+    const FAIXAS = {
+      germinacao_padrao: [1, 100, 'Germinação padrão'], espacamento_m: [0.1, 3, 'Espaçamento (m)'], sementes_por_metro: [1, 50, 'Sementes por metro'],
+      produtividade_sc_ha: [1, 300, 'Produtividade (sc/ha)'], kg_por_saca: [1, 100, 'Kg por saca'], pms_g: [50, 600, 'Peso de mil sementes (g)'],
+    };
     r.put('/central/config', cen, h(async (req, t) => {
-      const g = Number(String(req.body?.germinacao_padrao ?? '').replace(',', '.'));
-      if (!(g > 0 && g <= 100)) throw new RuleError('Germinação padrão inválida.');
-      await t.run("UPDATE nota_nf_config SET valor = ? WHERE chave = 'germinacao_padrao'", String(g));
-      return config(t);
+      const b = req.body || {};
+      const novos = [];
+      for (const [k, [min, max, rotulo]] of Object.entries(FAIXAS)) {
+        if (!(k in b)) continue;
+        const v = Number(String(b[k]).replace(',', '.'));
+        if (!(v >= min && v <= max)) throw new RuleError(`${rotulo}: informe um valor entre ${min} e ${max}.`);
+        novos.push([k, String(v)]);
+      }
+      if (!novos.length) throw new RuleError('Nada para salvar.');
+      for (const [k, v] of novos) await t.run('INSERT INTO nota_nf_config (chave, valor) VALUES (?, ?) ON CONFLICT (chave) DO UPDATE SET valor = excluded.valor', k, v);
+      return { ...(await config(t)), padrao: PARAMETROS };
     }));
 
     // ------------------------------------------------------------ exportação (Excel + fotos)
@@ -363,7 +379,7 @@ export default {
           } else ign.push([n.codigo, n.numero_nf, n.produtor_nome, i.descricao, i.unidade, i.quantidade, i.motivo_exclusao]);
         }
       }
-      return files.xlsx([{ name: 'Itens de soja', columns: COL_ITENS, rows }, { name: 'Itens ignorados', columns: COL_IGN, rows: ign }]);
+      return files.xlsx([await folhaPotencial(db, notas), { name: 'Itens de soja', columns: COL_ITENS, rows }, { name: 'Itens ignorados', columns: COL_IGN, rows: ign }]);
     }
 
     r.get('/central/exportar', cen, ler(async (req, res) => {

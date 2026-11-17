@@ -40,6 +40,8 @@ export function Totais({ t, compact }) {
       <div><span>Quantidade</span><b>{dec(t.quantidade)}</b></div>
       <div><span>Total de sementes</span><b>{int(t.sementes)}</b></div>
       <div><span>Sementes viáveis</span><b>{int(t.viaveis)}</b></div>
+      {t.area_potencial !== undefined && <div title="Sementes totais ÷ sementes por hectare (espaçamento, sementes/m e germinação)"><span>Área potencial (ha)</span><b>{dec(t.area_potencial)}</b></div>}
+      {t.volume_potencial !== undefined && <div title="Área potencial × 70 sc/ha × 60 kg"><span>Volume potencial (kg)</span><b>{int(t.volume_potencial)}</b></div>}
     </div>
   );
 }
@@ -48,7 +50,7 @@ export function Totais({ t, compact }) {
 const paraForm = (n) => ({
   numero_nf: n.numero_nf || '', serie: n.serie || '', chave_acesso: n.chave_acesso || '', data_emissao: n.data_emissao || '',
   emitente_nome: n.emitente_nome || '', emitente_doc: n.emitente_doc_fmt || '', produtor_nome: n.produtor_nome || '', produtor_doc: n.produtor_doc_fmt || '',
-  municipio: n.municipio || '', uf: n.uf || '', peso_liquido: n.peso_liquido != null ? dec(n.peso_liquido) : '',
+  municipio: n.municipio || '', uf: n.uf || '', distrito: n.distrito || '', peso_liquido: n.peso_liquido != null ? dec(n.peso_liquido) : '',
   itens: (n.itens || []).map((i) => ({
     descricao: i.descricao, cultivar: i.cultivar || '', unidade: i.unidade || '', quantidade: i.quantidade != null ? dec(i.quantidade) : '',
     sementes_por_unidade: i.sementes_por_unidade || '', germinacao: i.germinacao != null ? dec(i.germinacao, 1) : '',
@@ -60,7 +62,7 @@ const paraForm = (n) => ({
  * Formulário da NF. autoSave=true salva sozinho (rascunho do solicitante);
  * autoSave=false mostra o botão Salvar (edição da central).
  */
-export function NFForm({ nota, ufs, onSave, autoSave, onCancel, busy }) {
+export function NFForm({ nota, ufs, distritos = [], onSave, autoSave, onCancel, busy }) {
   const [f, setF] = useState(() => paraForm(nota));
   const [salvando, setSalvando] = useState(false);
   const timer = useRef();
@@ -98,6 +100,11 @@ export function NFForm({ nota, ufs, onSave, autoSave, onCancel, busy }) {
         <Field label="Peso líquido (kg)"><input inputMode="decimal" value={f.peso_liquido} onChange={set('peso_liquido')} /></Field>
         <Field label="Chave de acesso" hint={f.chave_acesso && f.chave_acesso.replace(/\D/g, '').length !== 44 ? `${f.chave_acesso.replace(/\D/g, '').length}/44 dígitos` : null}>
           <input className="nf-mono" value={f.chave_acesso} onChange={set('chave_acesso')} placeholder="44 dígitos" />
+        </Field>
+      </div>
+      <div className="nf-grid-dist">
+        <Field label="Distrito" hint={f.distrito ? null : 'Obrigatório para enviar'}>
+          <select value={f.distrito} onChange={set('distrito')}><option value="">Selecione…</option>{distritos.map((d) => <option key={d}>{d}</option>)}</select>
         </Field>
       </div>
       <div className="nf-grid nf-grid-2">
@@ -162,11 +169,12 @@ export function NFResumo({ n }) {
         <dt>Emitente</dt><dd>{n.emitente_nome || '—'}<div className="muted small">{n.emitente_doc_fmt}</div></dd>
         <dt>Produtor</dt><dd><b>{n.produtor_nome || '—'}</b><div className="muted small">{n.produtor_doc_fmt}</div></dd>
         <dt>Município</dt><dd>{n.municipio || '—'}{n.uf ? ` - ${n.uf}` : ''}</dd>
+        <dt>Distrito</dt><dd>{n.distrito || <span className="nf-bad">não informado</span>}</dd>
         <dt>Peso líquido</dt><dd>{n.peso_liquido != null ? `${dec(n.peso_liquido)} kg` : '—'}</dd>
         <dt>Chave</dt><dd className="nf-mono">{n.chave_acesso || '—'} {n.chave_acesso && <span className={n.chave_ok ? 'nf-ok' : 'nf-bad'}>{n.chave_ok ? '✓ válida' : '✗ inválida'}</span>}</dd>
       </dl>
       <table className="nf-itens nf-itens-ro">
-        <thead><tr><th>Descrição do produto</th><th>Cultivar</th><th>Unid.</th><th className="num">Qtd.</th><th className="num">Sementes/unid.</th><th className="num">Germ.</th><th className="num">Total sementes</th><th className="num">Viáveis</th></tr></thead>
+        <thead><tr><th>Descrição do produto</th><th>Cultivar</th><th>Unid.</th><th className="num">Qtd.</th><th className="num">Sementes/unid.</th><th className="num">Germ.</th><th className="num">Total sementes</th><th className="num">Viáveis</th><th className="num">Área (ha)</th><th className="num">Volume (kg)</th></tr></thead>
         <tbody>
           {n.itens.filter((i) => i.incluido).map((i) => (
             <tr key={i.id}>
@@ -174,6 +182,8 @@ export function NFResumo({ n }) {
               <td className="num">{i.sementes_por_unidade ? int(i.sementes_por_unidade) : <span className="nf-bad">—</span>}</td>
               <td className="num">{dec(i.germinacao, 1)}%{i.germinacao_padrao ? <div className="nf-motivo">padrão</div> : null}</td>
               <td className="num">{int(i.total_sementes)}</td><td className="num"><b>{int(i.viaveis)}</b></td>
+              <td className="num">{i.area_potencial != null ? dec(i.area_potencial) : <span className="nf-bad">—</span>}</td>
+              <td className="num"><b>{i.volume_potencial != null ? int(i.volume_potencial) : '—'}</b>{i.spu_origem && i.spu_origem !== 'da NF' ? <div className="nf-motivo">{i.spu_origem}</div> : null}</td>
             </tr>
           ))}
         </tbody>

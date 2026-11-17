@@ -1,5 +1,5 @@
 // Relatório do Nota NF para a Administração (NFs enviadas no período; rascunhos ficam de fora).
-import { STATUS_LABEL, fmtDoc, totais } from './regras.js';
+import { STATUS_LABEL, fmtDoc, totais, folhaPotencial } from './regras.js';
 
 const IA = { ok: 'Lida pela IA', falhou: 'IA não conseguiu ler', indisponivel: 'Manual' };
 
@@ -30,7 +30,7 @@ export default async function relatorio({ db, entre, periodo }) {
           n.analisado_at, t.itens_soja, t.itens_ignorados, t.quantidade, t.sementes, t.viaveis, n.motivo_recusa, n.obs_central];
       }),
     },
-    extras: [{
+    extras: [await folhaPotencial(db, notas), {
       name: 'Itens',
       columns: [{ label: 'ID da NF', width: 10 }, { label: 'Descrição', width: 44 }, { label: 'Cultivar', width: 16 }, { label: 'Unidade', width: 8 },
         { label: 'Quantidade' }, { label: 'Sementes/unidade', width: 12 }, { label: 'Germinação %', width: 11 }, { label: 'Germinação padrão (92%)', width: 12 },

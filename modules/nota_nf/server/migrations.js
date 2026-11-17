@@ -92,4 +92,19 @@ export default [
       `);
     },
   },
-];
+  {
+    // Distrito escolhido pelo solicitante e parâmetros do cálculo de área/volume potencial (planilha "Cálculo volume potencial NF").
+    version: 3,
+    async up(db) {
+      await db.exec(`
+        ALTER TABLE nota_nf_notas ADD COLUMN distrito TEXT;
+        INSERT INTO nota_nf_config (chave, valor) VALUES
+          ('espacamento_m', '0.45'),        -- espaçamento entre linhas (m)
+          ('sementes_por_metro', '13'),      -- sementes por metro linear (faixa de 11 a 15)
+          ('produtividade_sc_ha', '70'),     -- sacas de soja por ha
+          ('kg_por_saca', '60'),             -- kg de uma saca de soja
+          ('pms_g', '250')                   -- peso de mil sementes (g): 1 kg = 1.000.000 / PMS = 4.000 sementes
+        ON CONFLICT (chave) DO NOTHING;
+      `);
+    },
+  },];

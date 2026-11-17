@@ -129,10 +129,56 @@ export function totais(itens) {
 /** Lista de ids para usar em "IN (...)": só inteiros positivos; vazia vira "0" (não casa com nada). */
 export const ids = (xs) => xs.map(Number).filter((n) => Number.isInteger(n) && n > 0).join(',') || '0';
 
+/** Distritos válidos (o solicitante escolhe um ao enviar a NF). */
+export const DISTRITOS = ['Maringá', 'Londrina', 'Cornélio Procópio', 'Campo Mourão'];
+
+/** Parâmetros do sistema e seus valores iniciais (a central altera em Configurações). */
+export const PARAMETROS = { germinacao_padrao: 92, espacamento_m: 0.45, sementes_por_metro: 13, produtividade_sc_ha: 70, kg_por_saca: 60, pms_g: 250 };
+
 export async function config(db) {
-  const r = await db.get("SELECT valor FROM nota_nf_config WHERE chave = 'germinacao_padrao'");
-  return { germinacao_padrao: Number(r?.valor) || 92 };
+  const c = { ...PARAMETROS };
+  for (const r of await db.all('SELECT chave, valor FROM nota_nf_config')) if (r.chave in PARAMETROS && Number(r.valor) > 0) c[r.chave] = Number(r.valor);
+  return { ...c, sementes_por_kg: 1_000_000 / c.pms_g }; // 1 kg = 1.000.000 g ÷ PMS (250 g) = 4.000 sementes
 }
+
+// ------------------------------------------------------------------ área e volume potencial (planilha "Cálculo volume potencial NF")
+//   sementes totais   = quantidade × sementes por unidade
+//   sementes por ha   = (10.000 ÷ espaçamento) × sementes por metro × (1 + (1 − germinação))
+//   área potencial ha = sementes totais ÷ sementes por ha
+//   volume potencial  = área × 70 sc/ha × 60 kg (sempre)
+// Sementes por unidade: a da NF; em kg, 4.000 por kg; em saco/bag sem esse dado, (peso líquido ÷ nº de sacos) × 4.000 por kg.
+const UN_SACO = /^(SC|SCS|SACO|SACOS|SACA|SACAS|BAG|BAGS|BIGBAG|BIG BAG|BB)$/;
+const UN_KG = /^(KG|KGS|QUILO|QUILOS)$/;
+const limpaUn = (u) => String(u || '').trim().toUpperCase().replace(/[.\s]+$/g, '').replace(/\.$/, '');
+export const ehSaco = (u) => UN_SACO.test(limpaUn(u));
+export const ehKg = (u) => UN_KG.test(limpaUn(u));
+
+/** Um resultado por item (mesma ordem de "itens"). Item que não é soja ou sem como calcular: campos nulos. */
+export function potencial(itens, nota, cfg) {
+  const inc = itens.filter((i) => i.incluido);
+  const totalSacos = inc.filter((i) => ehSaco(i.unidade)).reduce((s, i) => s + (Number(i.quantidade) || 0), 0);
+  const pesoSaco = Number(nota?.peso_liquido) > 0 && totalSacos > 0 ? Number(nota.peso_liquido) / totalSacos : null;
+  const baseHa = (10000 / cfg.espacamento_m) * cfg.sementes_por_metro;
+  const vazio = { spu: null, origem: null, sementes_tot: null, sementes_ha: null, area_potencial: null, volume_potencial: null };
+  return itens.map((i) => {
+    const q = Number(i.quantidade);
+    if (!i.incluido || !(q > 0)) return vazio;
+    let spu = null; let origem = null;
+    if (ehKg(i.unidade)) { spu = cfg.sementes_por_kg; origem = 'padrão por kg'; }
+    else if (Number(i.sementes_por_unidade) > 0) { spu = Number(i.sementes_por_unidade); origem = 'da NF'; }
+    else if (ehSaco(i.unidade) && pesoSaco) { spu = pesoSaco * cfg.sementes_por_kg; origem = 'peso líquido ÷ sacos'; }
+    if (!spu) return vazio;
+    const germ = (Number(i.germinacao) > 0 ? Number(i.germinacao) : cfg.germinacao_padrao) / 100;
+    const sementesHa = baseHa * (1 + (1 - germ));
+    const tot = q * spu;
+    const area = tot / sementesHa;
+    return { spu: Math.round(spu), origem, sementes_tot: Math.round(tot), sementes_ha: Math.round(sementesHa), area_potencial: area, volume_potencial: area * cfg.produtividade_sc_ha * cfg.kg_por_saca };
+  });
+}
+export const somaPotencial = (pots) => ({
+  area_potencial: pots.reduce((s, p) => s + (p.area_potencial || 0), 0),
+  volume_potencial: pots.reduce((s, p) => s + (p.volume_potencial || 0), 0),
+});
 
 /** Grava uma ou várias linhas de histórico num INSERT só. Cada item: [notaId, acao, detalhe]. */
 export async function logs(db, user, itens) {
@@ -183,16 +229,52 @@ export function alertas(n, itens, cfg, parecidas = 0) {
   if (n.emitente_doc && !docValido(n.emitente_doc)) add('emitente_doc', 'CNPJ do emitente inválido');
   if (n.produtor_doc && !docValido(n.produtor_doc)) add('produtor_doc', 'CPF/CNPJ do produtor inválido');
   if (!n.numero_nf) add('sem_numero', 'Sem número da NF');
+  if (!n.distrito) add('sem_distrito', 'Sem distrito');
   if (!n.produtor_nome) add('sem_produtor', 'Sem nome do produtor');
   if (!isDate(n.data_emissao)) add('sem_data', 'Sem data de emissão');
   else if (n.data_emissao > hoje()) add('data_futura', 'Data de emissão no futuro');
   const inc = itens.filter((i) => i.incluido);
   if (!inc.length) add('sem_soja', 'Nenhum item de semente de soja', 'red');
   if (inc.some((i) => i.germinacao_padrao)) add('germ_padrao', `Germinação não informada — usado ${cfg.germinacao_padrao}%`);
-  if (inc.some((i) => !i.sementes_por_unidade)) add('sem_spu', 'Item sem sementes por unidade (ex.: 160K)');
+  const pots = potencial(itens, n, cfg);
+  if (itens.some((i, k) => i.incluido && !pots[k].spu)) add('sem_spu', 'Item sem sementes por unidade (ex.: 160K) e sem como calcular pelo peso líquido');
+  else if (itens.some((i, k) => i.incluido && !i.sementes_por_unidade && pots[k].spu)) add('spu_calculado', 'Sementes por unidade calculadas (kg ou peso líquido ÷ sacos)', 'amber');
   if (inc.some((i) => !(i.quantidade > 0))) add('sem_qtd', 'Item sem quantidade', 'red');
   if (parecidas) add('duplicada', `${parecidas} NF parecida(s) no banco`, 'red');
   return out;
 }
 
 export const STATUS_LABEL = { rascunho: 'Rascunho', aguardando: 'Aguardando central', validada: 'Validada', recusada: 'Recusada', substituida: 'Substituída', cancelada: 'Cancelada' };
+
+// ------------------------------------------------------------------ planilha de potencial (uma linha por item de soja)
+const STATUS_PLANILHA = { aguardando: 'Em validação', validada: 'Validada', recusada: 'Recusada', rascunho: 'Rascunho', substituida: 'Substituída', cancelada: 'Cancelada' };
+const COL_POTENCIAL = [
+  { label: 'ID', width: 11 }, { label: 'Quem subiu', width: 22 }, { label: 'Data/hora do upload', type: 'datetime', width: 17 }, { label: 'Emitente', width: 30 },
+  { label: 'CNPJ emitente', width: 19 }, { label: 'Produtor', width: 28 }, { label: 'CNPJ/CPF produtor', width: 19 }, { label: 'Data de emissão', type: 'date' },
+  { label: 'Distrito', width: 17 }, { label: 'Município', width: 18 }, { label: 'Cultivar', width: 16 }, { label: 'Área potencial (ha)', width: 14 }, { label: 'Vol. potencial (kg)', width: 16 },
+  { label: 'Unidade', width: 9 }, { label: 'Qtde', width: 10 }, { label: 'Sementes/unidade', width: 14 }, { label: 'Tx germinação (%)', width: 12 }, { label: 'Validação', width: 17 },
+  { label: 'Status', width: 14 }, { label: 'Nº NF', width: 10 }, { label: 'Chave ID', width: 46 },
+  { label: 'Detalhe da validação', type: 'texto', width: 40 }, { label: 'Origem das sementes/unidade', width: 20 },
+];
+const arred = (n, d = 2) => (n == null ? null : Math.round(n * 10 ** d) / 10 ** d);
+
+/** Folha "Potencial" no padrão pedido: uma linha por item de soja, com área e volume potencial, distrito e validação. */
+export async function folhaPotencial(db, notas) {
+  const cfg = await config(db);
+  const todos = notas.length ? await db.all(`SELECT * FROM nota_nf_itens WHERE nota_id IN (${ids(notas.map((n) => n.id))}) ORDER BY nota_id, ordem, id`) : [];
+  const dups = await duplicadosDe(db, notas);
+  const rows = [];
+  for (const n of notas) {
+    const its = todos.filter((i) => i.nota_id === n.id);
+    const pot = potencial(its, n, cfg);
+    const al = alertas(n, its, cfg, dups.get(n.id).length);
+    const validacao = al.some((a) => a.nivel === 'red') ? 'Erro identificado' : 'OK';
+    its.forEach((i, k) => {
+      if (!i.incluido) return;
+      rows.push([n.codigo, n.dono_nome, n.enviado_at || n.created_at, n.emitente_nome, fmtDoc(n.emitente_doc), n.produtor_nome, fmtDoc(n.produtor_doc), n.data_emissao, n.distrito, n.municipio,
+        i.cultivar, arred(pot[k].area_potencial), arred(pot[k].volume_potencial), i.unidade, i.quantidade, pot[k].spu, i.germinacao, validacao, STATUS_PLANILHA[n.status] || n.status,
+        n.numero_nf, n.chave_acesso, al.map((a) => a.texto).join('; '), pot[k].origem]);
+    });
+  }
+  return { name: 'Potencial', columns: COL_POTENCIAL, rows };
+}

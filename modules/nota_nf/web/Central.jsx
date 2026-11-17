@@ -29,7 +29,7 @@ function Lista({ module, api }) {
     && (!f.busca || norm(`${n.codigo} ${n.numero_nf} ${n.produtor_nome} ${n.produtor_doc} ${n.municipio} ${n.itens.map((i) => i.cultivar).join(' ')}`).includes(norm(f.busca)));
   const filtrados = all.filter(filtro);
   const vis = filtrados.filter((n) => !aba || n.status === aba);
-  const t = vis.reduce((a, n) => ({ q: a.q + n.totais.quantidade, s: a.s + n.totais.sementes, v: a.v + n.totais.viaveis, p: a.p + (n.peso_liquido || 0) }), { q: 0, s: 0, v: 0, p: 0 });
+  const t = vis.reduce((a, n) => ({ q: a.q + n.totais.quantidade, s: a.s + n.totais.sementes, v: a.v + n.totais.viaveis, p: a.p + (n.peso_liquido || 0), ha: a.ha + (n.totais.area_potencial || 0), vol: a.vol + (n.totais.volume_potencial || 0) }), { q: 0, s: 0, v: 0, p: 0, ha: 0, vol: 0 });
   const qs = new URLSearchParams({ ...(sel.length ? { ids: sel.join(',') } : { ...(aba ? { status: aba } : {}), ...(f.de ? { de: f.de } : {}), ...(f.ate ? { ate: f.ate } : {}) }) });
   const exportIds = sel.length ? sel : vis.map((n) => n.id);
   const qsVis = new URLSearchParams({ ids: exportIds.join(',') || '0' });
@@ -60,8 +60,8 @@ function Lista({ module, api }) {
             <thead>
               <tr>
                 <th><input type="checkbox" checked={sel.length === vis.length} onChange={(e) => setSel(e.target.checked ? vis.map((n) => n.id) : [])} title="Selecionar para exportar" /></th>
-                <th>ID</th><th>Nº NF</th><th>Emissão</th><th>Produtor</th><th>Município</th><th>Emitente</th><th>Cultivar</th>
-                <th className="num">Sacos</th><th className="num">Sementes</th><th className="num">Viáveis</th><th>Alertas</th><th>Status</th>
+                <th>ID</th><th>Nº NF</th><th>Emissão</th><th>Produtor</th><th>Município</th><th>Distrito</th><th>Emitente</th><th>Cultivar</th>
+                <th className="num">Sacos</th><th className="num">Sementes</th><th className="num">Viáveis</th><th className="num">Área (ha)</th><th className="num">Volume (kg)</th><th>Alertas</th><th>Status</th>
               </tr>
             </thead>
             <tbody>
@@ -73,17 +73,20 @@ function Lista({ module, api }) {
                   <td>{fmtDate(n.data_emissao)}</td>
                   <td>{n.produtor_nome || '—'}<div className="muted small">{n.produtor_doc_fmt}</div></td>
                   <td>{n.municipio}{n.uf ? ` - ${n.uf}` : ''}</td>
+                  <td>{n.distrito || <span className="muted">—</span>}</td>
                   <td className="small">{n.emitente_nome}</td>
                   <td className="small">{uniq(n.itens.filter((i) => i.incluido).map((i) => i.cultivar)).join(', ') || '—'}</td>
                   <td className="num">{dec(n.totais.quantidade)}</td>
                   <td className="num">{int(n.totais.sementes)}</td>
                   <td className="num cell-strong">{int(n.totais.viaveis)}</td>
+                  <td className="num">{dec(n.totais.area_potencial)}</td>
+                  <td className="num cell-strong">{int(n.totais.volume_potencial)}</td>
                   <td>{n.alertas.length ? <span className={`nf-alerta nf-alerta-${n.alertas.some((a) => a.nivel === 'red') ? 'red' : 'amber'}`}><AlertTriangle size={12} /> {n.alertas.length}</span> : <span className="muted">—</span>}</td>
                   <td><StatusBadge s={n.status} /></td>
                 </tr>
               ))}
             </tbody>
-            <tfoot><tr><td colSpan={8} className="cell-strong">Totais ({vis.length} NF · {dec(t.p)} kg)</td><td className="num cell-strong">{dec(t.q)}</td><td className="num">{int(t.s)}</td><td className="num cell-strong">{int(t.v)}</td><td colSpan={2} /></tr></tfoot>
+            <tfoot><tr><td colSpan={9} className="cell-strong">Totais ({vis.length} NF · {dec(t.p)} kg)</td><td className="num cell-strong">{dec(t.q)}</td><td className="num">{int(t.s)}</td><td className="num cell-strong">{int(t.v)}</td><td className="num">{dec(t.ha)}</td><td className="num cell-strong">{int(t.vol)}</td><td colSpan={2} /></tr></tfoot>
           </table>
         </Card>
       )}
@@ -176,7 +179,7 @@ function Analise({ module, api }) {
             ) : <div className="nf-ok"><CheckCircle2 size={15} /> Nenhuma NF parecida no banco</div>}
           </Card>
 
-          <Card>{editar ? <NFForm nota={n} ufs={cfg.ufs} onSave={salvar} onCancel={() => setEditar(false)} busy={busy} /> : <NFResumo n={n} />}</Card>
+          <Card>{editar ? <NFForm nota={n} ufs={cfg.ufs} distritos={cfg.distritos} onSave={salvar} onCancel={() => setEditar(false)} busy={busy} /> : <NFResumo n={n} />}</Card>
 
           <Card>
             <Field label="Observação da central (o solicitante vê)"><textarea rows={2} value={obs} onChange={(e) => setObs(e.target.value)} /></Field>
@@ -198,19 +201,32 @@ function Analise({ module, api }) {
 // =========================================================================== configurações
 function Config({ api }) {
   const [cfg, setCfg] = useState(null);
-  const [g, setG] = useState('');
+  const [p, setP] = useState({});
   const [run, busy] = useAction();
-  useEffect(() => { api.get('/config').then((c) => { setCfg(c); setG(String(c.germinacao_padrao)); }); }, []);
+  const CAMPOS = [
+    ['germinacao_padrao', 'Germinação padrão (%)', 'Usada quando a NF não informa a germinação do lote'],
+    ['espacamento_m', 'Espaçamento entre linhas (m)', 'Metros lineares por ha = 10.000 ÷ espaçamento'],
+    ['sementes_por_metro', 'Sementes por metro linear', 'Faixa de 11 a 15; a planilha usa 13'],
+    ['produtividade_sc_ha', 'Produtividade (sc/ha)', 'Volume potencial = área × produtividade × kg por saca'],
+    ['kg_por_saca', 'Kg por saca de soja', 'Normalmente 60'],
+    ['pms_g', 'Peso de mil sementes (g)', 'Sem sementes por unidade na NF: 1 kg = 1.000.000 ÷ PMS sementes (250 g = 4.000 por kg)'],
+  ];
+  const carregar = (c) => { setCfg(c); setP(Object.fromEntries(CAMPOS.map(([k]) => [k, String(c[k])]))); };
+  useEffect(() => { api.get('/config').then(carregar); }, []);
   if (!cfg) return <Empty>Carregando…</Empty>;
+  const sementesHa = (10000 / Number(p.espacamento_m || 1)) * Number(p.sementes_por_metro || 0) * (1 + (1 - Number(p.germinacao_padrao || 0) / 100));
   return (
     <div className="nf-config">
       <PageHeader title="Configurações" subtitle="Regras do Nota NF" back={null} />
       <Card>
         <div className="form-grid">
-          <Field label="Germinação padrão (%)" hint="Usada quando a NF não informa a germinação do lote">
-            <input inputMode="decimal" value={g} onChange={(e) => setG(e.target.value)} style={{ maxWidth: 140 }} />
-          </Field>
-          <div><Button onClick={async () => { const r = await run(() => api.put('/central/config', { germinacao_padrao: g }), 'Configuração salva'); if (r) setCfg({ ...cfg, ...r }); }} disabled={busy}>Salvar</Button></div>
+          {CAMPOS.map(([k, rotulo, dica]) => (
+            <Field key={k} label={rotulo} hint={dica}>
+              <input inputMode="decimal" value={p[k] ?? ''} onChange={(e) => setP({ ...p, [k]: e.target.value })} style={{ maxWidth: 160 }} />
+            </Field>
+          ))}
+          <p className="small muted nf-m0">Com estes valores: <b>{int(sementesHa)}</b> sementes por hectare (já considerando a germinação padrão). O volume potencial é sempre <b>área × produtividade × kg por saca</b> (hoje 70 × 60).</p>
+          <div><Button onClick={async () => { const r = await run(() => api.put('/central/config', p), 'Configuração salva'); if (r) carregar({ ...cfg, ...r }); }} disabled={busy}>Salvar</Button></div>
         </div>
       </Card>
       <Card className="nf-mt">
@@ -220,6 +236,9 @@ function Config({ api }) {
           <li><b>Sementes por unidade</b> vem da descrição: “160K” = 160.000; “160.000” = 160.000.</li>
           <li><b>Germinação</b> é procurada na descrição (“GERM 90%”) e nos dados adicionais da NF; sem informação, usa a germinação padrão.</li>
           <li>Chave de acesso conferida pelo dígito verificador e comparada com CNPJ do emitente, número e mês da NF.</li>
+          <li><b>Área potencial (ha)</b> = sementes totais ÷ sementes por hectare, onde sementes por hectare = (10.000 ÷ espaçamento) × sementes por metro × (1 + (1 − germinação)). <b>Volume potencial</b> = área × produtividade × kg por saca.</li>
+          <li>Sem sementes por unidade na NF: em <b>kg</b> usa 4.000 por kg; em <b>saco/bag</b> usa (peso líquido ÷ nº de sacos) × 4.000 por kg.</li>
+          <li>O <b>distrito</b> (Maringá, Londrina, Cornélio Procópio ou Campo Mourão) é escolhido pelo solicitante e é obrigatório para enviar a NF.</li>
         </ul>
       </Card>
       <Card className="nf-mt">

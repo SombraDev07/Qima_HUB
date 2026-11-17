@@ -7,7 +7,8 @@ import { Alertas, Lightbox, Miniatura, NFForm, NFResumo, StatusBadge, Totais, en
 const somar = (ns) => ns.reduce((t, n) => ({
   itens_soja: t.itens_soja + n.totais.itens_soja, itens_ignorados: t.itens_ignorados + n.totais.itens_ignorados,
   quantidade: t.quantidade + n.totais.quantidade, sementes: t.sementes + n.totais.sementes, viaveis: t.viaveis + n.totais.viaveis,
-}), { itens_soja: 0, itens_ignorados: 0, quantidade: 0, sementes: 0, viaveis: 0 });
+  area_potencial: t.area_potencial + (n.totais.area_potencial || 0), volume_potencial: t.volume_potencial + (n.totais.volume_potencial || 0),
+}), { itens_soja: 0, itens_ignorados: 0, quantidade: 0, sementes: 0, viaveis: 0, area_potencial: 0, volume_potencial: 0 });
 
 /** Cartão de NF em rascunho (edição com salvamento automático). */
 function NFRascunho({ module, api, cfg, nota, indice, onChange, onDelete, acao }) {
@@ -25,7 +26,7 @@ function NFRascunho({ module, api, cfg, nota, indice, onChange, onDelete, acao }
           {onDelete && <button className="icon-btn danger" title="Remover NF" onClick={onDelete}><Trash2 size={16} /></button>}
         </div>
         <Alertas itens={nota.alertas} />
-        <NFForm nota={nota} ufs={cfg.ufs} autoSave onSave={salvar} />
+        <NFForm nota={nota} ufs={cfg.ufs} distritos={cfg.distritos} autoSave onSave={salvar} />
         <Totais t={nota.totais} compact />
         {acao}
       </div>
