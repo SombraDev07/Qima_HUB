@@ -19,8 +19,8 @@ Como rodar:
 - **Com `DATABASE_URL`:** conecta no Postgres indicado (Supabase). **Testado em 17/11/2026** no projeto de desenvolvimento do Supabase: as 51 tabelas e todas as migrações foram criadas (RLS ligado em todas) e um teste de fumaça (login, listas dos 6 sistemas, escrita e exclusão, contas, relatório) passou. O teste achou um erro que o Postgres embutido não mostrava (gravação de números grandes), já corrigido em `core/server/pg.js`.
 - A conexão direta (`db.<projeto>.supabase.co:5432`) só tem IPv6. Funcionou nesta máquina, mas para a Vercel use o endereço do **pooler** (porta 6543, modo transação) em `DATABASE_URL`.
 - A senha do banco e a do administrador ficam só no `.env` (fora do Git).
-- **Região do banco: o projeto do Supabase está em `us-east-1` (Virgínia), não em São Paulo.** Do Brasil, cada consulta leva cerca de 160 ms. Por isso `vercel.json` põe a função em `iad1` (Washington), colada no banco. A alternativa é criar um projeto novo do Supabase em `sa-east-1` e trocar a região da função para `gru1`; como ainda não há dados de produção, agora é o momento mais barato para decidir.
-- **Pooler:** `aws-1-us-east-1.pooler.supabase.com:6543` (modo transação). Nele, várias consultas juntas numa mesma conexão travam; o `pg.js` usa `max_pipeline: 1` para evitar isso.
+- **Região: banco e função em São Paulo** (Supabase `sa-east-1`, Vercel `gru1`). O primeiro projeto tinha sido criado em `us-east-1` (Virgínia), onde cada consulta levava cerca de 160 ms; em 17/11/2026 foi trocado por um projeto novo em São Paulo (cerca de 12 ms por consulta). O Supabase não muda a região de um projeto existente.
+- **Pooler:** `aws-1-sa-east-1.pooler.supabase.com:6543` (modo transação). Nele, várias consultas juntas numa mesma conexão travam; o `pg.js` usa `max_pipeline: 1` para evitar isso.
 - Preparação da Vercel: `api/index.js` (função), `vercel.json` e `.env.vercel` (variáveis de produção, fora do Git). O disco da Vercel é somente leitura: **fotos e anexos só funcionam depois da migração para o Storage**.
 - `npm run migrate` cria as tabelas no banco apontado por `DATABASE_URL`.
 
