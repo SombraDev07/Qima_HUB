@@ -3,7 +3,6 @@
 //
 // Banco: Postgres (assíncrono). Dentro de uma transação (rotas com "h") use sempre o "t".
 import express from 'express';
-import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import migrations from './migrations.js';
@@ -64,7 +63,7 @@ export default {
   },
 
   router(r, ctx) {
-    const { db, requireRole, notify, usuariosComPerfil, filesDir, files } = ctx;
+    const { db, requireRole, notify, usuariosComPerfil, arquivos, files } = ctx;
     const sol = requireRole('solicitante');
     const cen = requireRole('central');
     const isCentral = (req) => ['central', 'ambos'].includes(req.moduleRole);
@@ -132,11 +131,11 @@ export default {
         if (!req.body?.length) throw new RuleError('Arquivo vazio.');
         if (['.xlsx', '.xlsm'].includes(ext) && req.body.slice(0, 2).toString() !== 'PK') throw new RuleError('Este arquivo não é uma planilha Excel válida.');
         arquivo = `${Date.now()}-${crypto.randomBytes(6).toString('hex')}${ext}`;
-        await fs.promises.writeFile(path.join(filesDir, arquivo), req.body);
+        await arquivos.salvar(arquivo, req.body, EXT[ext]);
         const x = await db.get('INSERT INTO solicitacoes_arquivos (dono_id, nome, arquivo, mime, tamanho) VALUES (?, ?, ?, ?, ?) RETURNING id', req.user.id, nome, arquivo, EXT[ext], req.body.length);
         res.status(201).json({ id: x.id, nome, tamanho: req.body.length });
       } catch (e) {
-        if (arquivo) fs.rm(path.join(filesDir, arquivo), { force: true }, () => {});
+        if (arquivo) arquivos.apagar(arquivo);
         erro(res, e);
       }
     });
@@ -149,7 +148,7 @@ export default {
         res.setHeader('Content-Type', a.mime || 'application/octet-stream');
         res.setHeader('X-Content-Type-Options', 'nosniff');
         res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(a.nome)}`);
-        res.sendFile(path.join(filesDir, a.arquivo));
+        await arquivos.enviar(res, a.arquivo);
       } catch (e) { erro(res, e); }
     });
 

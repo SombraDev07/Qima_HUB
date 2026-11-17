@@ -2,7 +2,6 @@
 //
 // Banco: Postgres (assíncrono). Dentro de uma transação (rotas com "h") use sempre o "t".
 import express from 'express';
-import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import migrations from './migrations.js';
@@ -55,7 +54,7 @@ export default {
   },
 
   router(r, ctx) {
-    const { db, requireRole, notify, filesDir } = ctx;
+    const { db, requireRole, notify, arquivos } = ctx;
     const sol = requireRole('solicitante');
     const cen = requireRole('central');
 
@@ -324,7 +323,7 @@ export default {
       await t.run('DELETE FROM hospedagens_quartos WHERE id = ?', q.id);
       await recalcPedidoDatas(t, q.pedido_id);
       await log(t, q.pedido_id, req.user, 'Quarto apagado', q.codigo);
-      for (const a of anexos) fs.rm(path.join(filesDir, a.arquivo), { force: true }, () => {});
+      for (const a of anexos) arquivos.apagar(a.arquivo);
     }));
 
     /** E-mail ao solicitante com a situação atual dos quartos indicados. */
@@ -570,12 +569,12 @@ export default {
         if (!OK_MIME.test(mime)) throw new RuleError('Envie PDF ou imagem.');
         if (!req.body?.length) throw new RuleError('Arquivo vazio.');
         arquivo = `${q.id}-${crypto.randomBytes(8).toString('hex')}${path.extname(nome).toLowerCase()}`;
-        await fs.promises.writeFile(path.join(filesDir, arquivo), req.body);
+        await arquivos.salvar(arquivo, req.body, mime);
         const x = await db.get('INSERT INTO hospedagens_anexos (quarto_id, nome, mime, arquivo, tamanho, created_by) VALUES (?, ?, ?, ?, ?, ?) RETURNING id',
           q.id, nome, mime, arquivo, req.body.length, req.user.id);
         res.status(201).json({ id: x.id, nome, mime, tamanho: req.body.length });
       } catch (e) {
-        if (arquivo) fs.rm(path.join(filesDir, arquivo), { force: true }, () => {});
+        if (arquivo) arquivos.apagar(arquivo);
         erro(res, e);
       }
     });
@@ -587,14 +586,14 @@ export default {
         res.setHeader('Content-Type', a.mime || 'application/octet-stream');
         res.setHeader('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(a.nome)}`);
         res.setHeader('X-Content-Type-Options', 'nosniff');
-        res.sendFile(path.join(filesDir, a.arquivo));
+        await arquivos.enviar(res, a.arquivo);
       } catch (e) { erro(res, e); }
     });
 
     r.delete('/central/anexos/:aid', cen, h(async (req, t) => {
       const a = await t.get('DELETE FROM hospedagens_anexos WHERE id = ? RETURNING arquivo', Number(req.params.aid) || 0);
       if (!a) throw new RuleError('Anexo não encontrado', 404);
-      fs.rm(path.join(filesDir, a.arquivo), { force: true }, () => {});
+      arquivos.apagar(a.arquivo);
     }));
   },
 };

@@ -3,7 +3,6 @@
 // Banco: Postgres (assíncrono). Dentro de uma transação (rotas com "h") use sempre o "t".
 // A leitura por IA acontece sempre FORA de transação (pode demorar alguns segundos).
 import express from 'express';
-import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import migrations from './migrations.js';
@@ -56,7 +55,7 @@ export default {
   },
 
   router(r, ctx) {
-    const { db, requireRole, filesDir, ai, files, notify } = ctx;
+    const { db, requireRole, arquivos, ai, files, notify } = ctx;
     const sol = requireRole('solicitante');
     const cen = requireRole('central');
     const isCentral = (req) => ['central', 'ambos'].includes(req.moduleRole);
@@ -154,7 +153,7 @@ export default {
         res.setHeader('X-Content-Type-Options', 'nosniff');
         res.setHeader('Cache-Control', 'private, max-age=86400');
         if (req.query.download) res.setHeader('Content-Disposition', `attachment; filename="${n.codigo}${MIMES[n.mime] || ''}"`);
-        res.sendFile(path.join(filesDir, n.arquivo));
+        await arquivos.enviar(res, n.arquivo);
       } catch (e) { erro(res, e); }
     });
 
@@ -179,7 +178,7 @@ export default {
         const hash = crypto.createHash('sha256').update(req.body).digest('hex');
         const hashOriginal = /^[a-f0-9]{64}$/.test(String(req.headers['x-hash-original'] || '')) ? req.headers['x-hash-original'] : null;
         arquivo = `${Date.now()}-${crypto.randomBytes(6).toString('hex')}${MIMES[mime]}`;
-        await fs.promises.writeFile(path.join(filesDir, arquivo), req.body);
+        await arquivos.salvar(arquivo, req.body, mime);
 
         const lido = await lerNF(ai, req.body, mime); // fora de transação
 
@@ -198,10 +197,10 @@ export default {
           if (substitui) await log(t, substitui.id, req.user, 'Nova foto enviada', `${codigoNota(x.id)} substitui ${substitui.codigo}`);
           return { id: x.id, descartados: velhas };
         });
-        for (const a of descartados) fs.rm(path.join(filesDir, a), { force: true }, () => {});
+        for (const a of descartados) arquivos.apagar(a);
         res.status(201).json(await notaView(db, id));
       } catch (err) {
-        if (arquivo) fs.rm(path.join(filesDir, arquivo), { force: true }, () => {});
+        if (arquivo) arquivos.apagar(arquivo);
         erro(res, err);
       }
     });
@@ -224,7 +223,7 @@ export default {
     r.delete('/notas/:id', sol, h(async (req, t) => {
       const n = await meuRascunho(t, req, 'Esta NF não pode ser excluída.');
       await t.run('DELETE FROM nota_nf_notas WHERE id = ?', n.id);
-      fs.rm(path.join(filesDir, n.arquivo), { force: true }, () => {});
+      arquivos.apagar(n.arquivo);
     }));
 
     function validarEnvio(n, itens) {
@@ -377,7 +376,7 @@ export default {
       const pasta = `notas-nf-${hoje()}`;
       const entradas = [{ name: `${pasta}/notas-nf-soja.xlsx`, data: await planilha(notas) }];
       for (const n of notas) {
-        try { entradas.push({ name: `${pasta}/fotos/${n.codigo}${MIMES[n.mime] || ''}`, data: await fs.promises.readFile(path.join(filesDir, n.arquivo)) }); } catch { /* arquivo ausente: segue sem ele */ }
+        try { entradas.push({ name: `${pasta}/fotos/${n.codigo}${MIMES[n.mime] || ''}`, data: await arquivos.ler(n.arquivo) }); } catch { /* arquivo ausente: segue sem ele */ }
       }
       res.setHeader('Content-Type', 'application/zip');
       res.setHeader('Content-Disposition', `attachment; filename="${pasta}.zip"`);

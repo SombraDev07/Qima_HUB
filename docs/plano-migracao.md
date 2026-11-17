@@ -21,7 +21,7 @@ Como rodar:
 - A senha do banco e a do administrador ficam só no `.env` (fora do Git).
 - **Região: banco e função em São Paulo** (Supabase `sa-east-1`, Vercel `gru1`). O primeiro projeto tinha sido criado em `us-east-1` (Virgínia), onde cada consulta levava cerca de 160 ms; em 17/11/2026 foi trocado por um projeto novo em São Paulo (cerca de 12 ms por consulta). O Supabase não muda a região de um projeto existente.
 - **Pooler:** `aws-1-sa-east-1.pooler.supabase.com:6543` (modo transação). Nele, várias consultas juntas numa mesma conexão travam; o `pg.js` usa `max_pipeline: 1` para evitar isso.
-- Preparação da Vercel: `api/index.js` (função), `vercel.json` e `.env.vercel` (variáveis de produção, fora do Git). O disco da Vercel é somente leitura: **fotos e anexos só funcionam depois da migração para o Storage**.
+- Preparação da Vercel: `api/index.js` (função), `vercel.json` e `.env.vercel` (variáveis de produção, fora do Git). O disco da Vercel é somente leitura, então fotos e anexos vão para o **Supabase Storage**: bucket privado `qima-arquivos` (limite de 20 MB por arquivo, sem políticas públicas), criado por `npm run migrate`, e `ctx.arquivos` (`core/server/lib/arquivos.js`) nos 5 sistemas. Precisa de `SUPABASE_SERVICE_KEY` (chave secreta) no ambiente. Limite da Vercel: cerca de 4,5 MB por envio e por resposta, o que afeta PDFs grandes e ZIPs com muitas fotos.
 - `npm run migrate` cria as tabelas no banco apontado por `DATABASE_URL`.
 
 Durante a migração:

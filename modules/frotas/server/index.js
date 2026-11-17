@@ -3,8 +3,6 @@
 //
 // Banco: Postgres (assíncrono). Dentro de uma transação (rotas com "h") use sempre o "t".
 import express from 'express';
-import fs from 'node:fs';
-import path from 'node:path';
 import crypto from 'node:crypto';
 import migrations from './migrations.js';
 import relatorio from './relatorio.js';
@@ -68,7 +66,7 @@ export default {
   },
 
   router(r, ctx) {
-    const { db, requireRole, notify, usuariosComPerfil, filesDir, files } = ctx;
+    const { db, requireRole, notify, usuariosComPerfil, arquivos, files } = ctx;
     const sol = requireRole('solicitante');
     const cen = requireRole('central');
     const isCentral = (req) => ['central', 'ambos'].includes(req.moduleRole);
@@ -168,7 +166,7 @@ export default {
         res.setHeader('X-Content-Type-Options', 'nosniff');
         res.setHeader('Cache-Control', 'private, max-age=86400');
         if (req.query.download) res.setHeader('Content-Disposition', `attachment; filename="${f.codigo}${MIMES[f.mime] || '.jpg'}"`);
-        res.sendFile(path.join(filesDir, f.arquivo));
+        await arquivos.enviar(res, f.arquivo);
       } catch (e) { erro(res, e); }
     });
 
@@ -189,7 +187,7 @@ export default {
         const tirada = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(String(req.query.tirada_em || '')) ? String(req.query.tirada_em).slice(0, 19).replace('T', ' ') : agora();
         if (Number.isNaN(Date.parse(`${tirada.replace(' ', 'T')}Z`))) throw new RuleError('Data da foto inválida.');
         arquivo = `${Date.now()}-${crypto.randomBytes(6).toString('hex')}${MIMES[mime]}`;
-        await fs.promises.writeFile(path.join(filesDir, arquivo), req.body);
+        await arquivos.salvar(arquivo, req.body, mime);
         const foto = await db.tx(async (t) => {
           const { id } = await t.get(`INSERT INTO frotas_fotos (veiculo_id, angulo, arquivo, mime, tamanho, lat, lon, precisao, tirada_em, autor_id, autor_nome, autor_email)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`, v.id, angulo, arquivo, mime, req.body.length, lat, lon,
@@ -200,7 +198,7 @@ export default {
         });
         res.status(201).json(foto);
       } catch (e) {
-        if (arquivo) fs.rm(path.join(filesDir, arquivo), { force: true }, () => {});
+        if (arquivo) arquivos.apagar(arquivo);
         erro(res, e);
       }
     });

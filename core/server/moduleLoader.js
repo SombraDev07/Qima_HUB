@@ -2,7 +2,6 @@
 // Um módulo com erro é registrado como "falhou" e NÃO derruba o HUB.
 //
 // Todos os sistemas usam o Postgres: ctx.db é assíncrono (get, all, run, tx).
-import fs from 'node:fs';
 import path from 'node:path';
 import express from 'express';
 import { dataDir } from './db.js';
@@ -11,6 +10,7 @@ import { requireAuth, hasRole, a } from './auth.js';
 import { createZip } from './lib/zip.js';
 import { buildXlsx } from './lib/xlsx.js';
 import { aiParaModulo } from './lib/ai.js';
+import { arquivosDoModulo } from './lib/arquivos.js';
 import registro from '../../modules/registro.js';
 
 /** @type {Map<string, {manifest: any, impl: any, error?: string}>} */
@@ -36,10 +36,11 @@ export async function versoesDoBanco() {
 
 /** Contexto entregue a cada módulo. É o "contrato" estável entre core e módulos. */
 function makeContext(key) {
+  const filesDir = path.join(dataDir, 'uploads', key);
   return {
     key,
-    /** Pasta exclusiva do módulo para arquivos enviados (anexos). */
-    filesDir: path.join(dataDir, 'uploads', key),
+    /** Fotos e anexos: Supabase Storage (privado) ou, em desenvolvimento, a pasta local. Veja lib/arquivos.js. */
+    arquivos: arquivosDoModulo(key, filesDir),
     /** Geração de arquivos para download: ZIP e planilha Excel. */
     files: { zip: createZip, xlsx: buildXlsx },
     /** Leitura de documentos por IA (configurada no Admin; sem provedor ou desligada = modo manual). */
@@ -91,7 +92,6 @@ export async function loadModules(app, { migrar = true } = {}) {
           next();
         }));
         const ctx = makeContext(name);
-        fs.mkdirSync(ctx.filesDir, { recursive: true });
         impl.router(router, ctx);
         app.use(`/api/m/${name}`, router);
       }

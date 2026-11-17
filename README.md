@@ -146,6 +146,8 @@ só o servidor do HUB lê e grava.
 | `DATABASE_URL` | Postgres do Supabase. Vazio = Postgres embutido local |
 | `QIMA_PG_DIR` | Pasta do Postgres embutido |
 | `QIMA_SEGREDO` | Segredo que protege a chave da IA (obrigatório em produção) |
+| `SUPABASE_URL` / `SUPABASE_SERVICE_KEY` | Fotos e anexos no Supabase Storage (bucket privado `qima-arquivos`). A chave é **secreta**: só no servidor. Sem ela, em desenvolvimento usa `data/uploads`; na Vercel o envio é recusado |
+| `DEEPSEEK_API_KEY` | Leitura de notas pelo DeepSeek, se nada estiver salvo na Administração |
 | `QIMA_ADMIN_EMAIL` / `QIMA_ADMIN_PASSWORD` | Administrador criado no primeiro start |
 | `QIMA_AI_PROVIDER` | IA padrão quando nada foi salvo na Administração (`demo` só para testes) |
 | `QIMA_FUSO_HORAS` | Fuso dos relatórios (padrão `-3`, Brasília) |
@@ -196,7 +198,8 @@ chamada externa (IA, e-mail) dentro de transação. O exemplo completo está em 
 - [x] Núcleo: contas, perfis, sistemas, relatórios e IA configurável
 - [x] 6 sistemas migrados do PowerApps, com melhorias
 - [x] Banco no Postgres do Supabase, com RLS
-- [ ] Fotos e anexos no Supabase Storage (envio direto do aparelho)
+- [x] Fotos e anexos no Supabase Storage, pelo servidor (`core/server/lib/arquivos.js`)
+- [ ] Envio direto do aparelho para o Storage (arquivos acima de ~4,5 MB na Vercel)
 - [ ] Login pelo Supabase Auth (web e app)
 - [ ] Publicação na Vercel, na região de São Paulo
 - [ ] Envio real de e-mails (hoje ficam na fila)
