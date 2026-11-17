@@ -16,6 +16,9 @@ import {
 const MIMES = { 'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp', 'application/pdf': '.pdf' };
 const MAX_UPLOAD = 20 * 1024 * 1024;
 const CAMPOS = ['numero_nf', 'serie', 'chave_acesso', 'emitente_nome', 'emitente_doc', 'produtor_nome', 'produtor_doc', 'data_emissao', 'municipio', 'uf', 'peso_liquido', 'obs_solicitante'];
+/** Nome da foto dentro do ZIP e na coluna "Arquivo" do Excel: "NF 765432 - Produtor Fulano (NF-00005).jpg" (o código garante nome único). */
+const limpaNome = (s) => String(s || '').replace(/[\\/:*?"<>|\r\n\t]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 70);
+const nomeFoto = (n) => `NF ${n.numero_nf || 's-n'} - ${limpaNome(n.produtor_nome) || 'sem produtor'} (${n.codigo})${MIMES[n.mime] || ''}`;
 const fmtInt = (n) => Math.round(n || 0).toLocaleString('pt-BR');
 const HTML = (corpo) => `<div style="font-family:Segoe UI,Arial,sans-serif;font-size:15px;line-height:1.6">${corpo}</div>`;
 const esc = (s) => String(s ?? '').replace(/</g, '&lt;');
@@ -354,7 +357,7 @@ export default {
       for (const n of notas) {
         for (const i of itens.get(n.id)) {
           if (i.incluido) {
-            rows.push([n.codigo, `fotos/${n.codigo}${MIMES[n.mime] || ''}`, STATUS_LABEL[n.status], n.numero_nf, n.serie, n.data_emissao, n.emitente_nome, fmtDoc(n.emitente_doc),
+            rows.push([n.codigo, `fotos/${nomeFoto(n)}`, STATUS_LABEL[n.status], n.numero_nf, n.serie, n.data_emissao, n.emitente_nome, fmtDoc(n.emitente_doc),
               n.produtor_nome, fmtDoc(n.produtor_doc), n.municipio, n.uf, n.chave_acesso, n.peso_liquido, i.descricao, i.cultivar, i.unidade, i.quantidade,
               i.sementes_por_unidade, i.germinacao, i.germinacao_padrao ? 'Sim' : 'Não', i.total_sementes, i.viaveis, n.dono_nome, (n.enviado_at || '').slice(0, 10)]);
           } else ign.push([n.codigo, n.numero_nf, n.produtor_nome, i.descricao, i.unidade, i.quantidade, i.motivo_exclusao]);
@@ -375,12 +378,9 @@ export default {
       if (!notas.length) throw new RuleError('Nenhuma NF selecionada.');
       const pasta = `notas-nf-${hoje()}`;
       const entradas = [{ name: `${pasta}/notas-nf-soja.xlsx`, data: await planilha(notas) }];
-      for (const n of notas) {
-        try { entradas.push({ name: `${pasta}/fotos/${n.codigo}${MIMES[n.mime] || ''}`, data: await arquivos.ler(n.arquivo) }); } catch { /* arquivo ausente: segue sem ele */ }
-      }
-      res.setHeader('Content-Type', 'application/zip');
-      res.setHeader('Content-Disposition', `attachment; filename="${pasta}.zip"`);
-      res.send(files.zip(entradas));
+      const fotos = await arquivos.lerVarios(notas.map((n) => n.arquivo));
+      notas.forEach((n, i) => { if (fotos[i]) entradas.push({ name: `${pasta}/fotos/${nomeFoto(n)}`, data: fotos[i] }); }); // arquivo ausente: segue sem ele
+      await arquivos.entregarDownload(res, `${pasta}.zip`, files.zip(entradas));
     }));
   },
 };

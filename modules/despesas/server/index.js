@@ -454,9 +454,8 @@ export default {
       const p = await getPedido(db, req.params.id);
       const { rows, notas } = await linhasExcel([p]);
       const entradas = [];
-      for (const n of notas) {
-        try { entradas.push({ name: `${p.codigo}/${nomeFoto(n)}`, data: await arquivos.ler(n.arquivo) }); } catch { /* arquivo ausente: segue sem ele */ }
-      }
+      const fotos = await arquivos.lerVarios(notas.map((n) => n.arquivo));
+      notas.forEach((n, i) => { if (fotos[i]) entradas.push({ name: `${p.codigo}/${nomeFoto(n)}`, data: fotos[i] }); }); // arquivo ausente: segue sem ele
       const xlsx = files.xlsx([
         { name: 'Notas', columns: COLS, rows },
         { name: 'Pedido', columns: [{ label: 'Pedido' }, { label: 'Colaborador', width: 26 }, { label: 'E-mail', width: 26 }, { label: 'Enviado em', type: 'date', width: 12 },
@@ -466,9 +465,7 @@ export default {
             p.total_declarado, p.total_aprovado, p.pix_tipo, p.pix_chave, p.centro_custo, p.obs_central, p.pago_em]] },
       ]);
       entradas.unshift({ name: `${p.codigo}/${p.codigo}.xlsx`, data: xlsx });
-      res.setHeader('Content-Type', 'application/zip');
-      res.setHeader('Content-Disposition', `attachment; filename="${p.codigo}.zip"`);
-      res.send(files.zip(entradas));
+      await arquivos.entregarDownload(res, `${p.codigo}.zip`, files.zip(entradas));
     }));
 
     // Excel geral (financeiro): todas as notas dos pedidos filtrados
