@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Route, Routes } from 'react-router-dom';
 import { Plus, UserPlus, ArrowLeftRight, History, Pencil, ArrowDownToLine, Trash2, X, Send, Undo2 } from 'lucide-react';
 import { Button, Card, Empty, Field, FiltroSelect, Modal, PageHeader, fmtDate, fmtDateTime, money, norm, useAction, useConfirm } from '@hub';
-import { Barra, DadosSolicitacao, Kpi, Status, UsuarioModal, dash, qtdTipo, useSelecao } from './shared.jsx';
+import { Barra, DadosSolicitacao, Kpi, PedidoModal, Status, UsuarioModal, dash, qtdTipo, useSelecao } from './shared.jsx';
 
 const POR_PAGINA = 200;
 
@@ -236,6 +236,7 @@ function Solicitacoes({ api }) {
   const [busca, setBusca] = useState('');
   const [tipo, setTipo] = useState('');
   const [aberta, setAberta] = useState(null);
+  const [nova, setNova] = useState(false);
   const load = () => api.get('/central/solicitacoes').then(setLista);
   useEffect(() => { load(); const i = setInterval(load, 30000); return () => clearInterval(i); }, []);
   const all = lista || [];
@@ -243,7 +244,8 @@ function Solicitacoes({ api }) {
   const vis = all.filter((s) => f(s) && (!busca || norm(`${s.codigo} ${s.colaborador || ''} ${s.projeto} ${s.base} ${s.solicitante_nome}`).includes(norm(busca))) && (!tipo || s.itens.some((i) => i.tipo === tipo)));
   return (
     <>
-      <PageHeader title="Solicitações" subtitle="Reserve os equipamentos de cada pedido, envie e acompanhe as devoluções." back="/" />
+      <PageHeader title="Solicitações" subtitle="Reserve os equipamentos de cada pedido, envie e acompanhe as devoluções." back="/"
+        actions={<Button onClick={() => setNova(true)} disabled={!cfg}><Plus size={16} /> Nova solicitação</Button>} />
       <div className="eq-abas">
         {ABAS.map((a) => {
           const n = all.filter(a.f).length;
@@ -275,6 +277,10 @@ function Solicitacoes({ api }) {
         )}
       </Card>
       {aberta && <DetalheSolicitacao api={api} id={aberta} onClose={() => { setAberta(null); load(); }} onMudou={load} />}
+      {nova && cfg && (
+        <PedidoModal cfg={cfg} onClose={() => setNova(false)}
+          onSalvar={async (f) => { const r = await api.post('/solicitacoes', f); await api.post('/solicitacoes/enviar', { ids: [r.id] }); load(); return r; }} />
+      )}
     </>
   );
 }

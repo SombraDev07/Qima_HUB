@@ -1,6 +1,7 @@
 ﻿import express from 'express';
 import { pg } from './pg.js';
 import { a, hashPassword } from './auth.js';
+import { auditar, desbloquearEmail, hashToken, ipDe, novoToken, urlBase, validarSenha } from './lib/seguranca.js';
 import { registry, versoesDoBanco } from './moduleLoader.js';
 import { aiCarregar, aiConfigPublica, aiSalvar, aiTestar, aiUso } from './lib/ai.js';
 import { ErroRelatorio, enviarExcel, gerarExcel, sistemasComRelatorio } from './relatorios.js';
@@ -23,7 +24,7 @@ function validateUser(body, { creating }) {
   if (!name) return 'Informe o nome';
   if (!EMAIL_RE.test(email)) return 'E-mail inválido';
   if (creating && !password) return 'Informe uma senha';
-  if (password && password.length < 6) return 'A senha precisa ter ao menos 6 caracteres';
+  if (password) { const e = validarSenha(password, email); if (e) return e; }
   return null;
 }
 
@@ -51,6 +52,7 @@ export function adminRouter() {
       await saveAccess(t, novo.id, access);
       return novo.id;
     });
+    await auditar('usuario_criado', { usuario: req.user, ip: ipDe(req), detalhe: `${email} (${is_admin ? 'admin' : 'comum'}) acessos: ${JSON.stringify(access || {})}` });
     res.status(201).json({ id });
   }));
 
@@ -71,14 +73,46 @@ export function adminRouter() {
       if (password || !active) await t.run('DELETE FROM sessions WHERE user_id = ?', id);
       await saveAccess(t, id, access);
     });
+    await auditar('usuario_alterado', { usuario: req.user, ip: ipDe(req), detalhe: `${email} admin=${!!is_admin} ativo=${!!active}${password ? ' senha trocada' : ''} acessos: ${JSON.stringify(access || {})}` });
     res.json({ ok: true });
   }));
 
   r.delete('/users/:id', a(async (req, res) => {
     const id = Number(req.params.id);
     if (id === req.user.id) return res.status(400).json({ error: 'Você não pode excluir a si mesmo' });
+    const alvo = await pg.get('SELECT email FROM users WHERE id = ?', id);
     await pg.run('DELETE FROM users WHERE id = ?', id);
+    await auditar('usuario_excluido', { usuario: req.user, ip: ipDe(req), detalhe: alvo?.email });
     res.json({ ok: true });
+  }));
+
+  // Link para a pessoa criar uma nova senha (vale 30 minutos, uma vez). Enquanto o envio de e-mail não está ligado,
+  // a administração entrega este link. O token só aparece aqui; no banco fica apenas o hash.
+  r.post('/users/:id/reset-link', a(async (req, res) => {
+    const id = Number(req.params.id);
+    const u = await pg.get('SELECT id, email, active FROM users WHERE id = ?', id);
+    if (!u) return res.status(404).json({ error: 'Usuário não encontrado' });
+    if (!u.active) return res.status(400).json({ error: 'A conta está desativada' });
+    const token = novoToken();
+    await pg.tx(async (t) => {
+      await t.run('DELETE FROM password_resets WHERE user_id = ? AND used_at IS NULL', id);
+      await t.run(`INSERT INTO password_resets (user_id, token_hash, expires_at, criado_por) VALUES (?, ?, now() + interval '30 minutes', ?)`, id, hashToken(token), req.user.id);
+    });
+    await auditar('senha_link_gerado', { usuario: req.user, ip: ipDe(req), detalhe: u.email });
+    res.json({ link: `${urlBase()}/redefinir-senha?token=${token}`, expira_em_min: 30 });
+  }));
+
+  // Libera quem foi bloqueado por excesso de tentativas de login
+  r.post('/users/:id/desbloquear', a(async (req, res) => {
+    const u = await pg.get('SELECT email FROM users WHERE id = ?', Number(req.params.id));
+    if (!u) return res.status(404).json({ error: 'Usuário não encontrado' });
+    await desbloquearEmail(u.email.toLowerCase());
+    await auditar('login_desbloqueado', { usuario: req.user, ip: ipDe(req), detalhe: u.email });
+    res.json({ ok: true });
+  }));
+
+  r.get('/auditoria', a(async (_req, res) => {
+    res.json(await pg.all('SELECT id, usuario_email, acao, detalhe, ip, created_at FROM audit_log ORDER BY id DESC LIMIT 300'));
   }));
 
   // ---------- Sistemas (módulos) ----------

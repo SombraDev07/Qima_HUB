@@ -1,10 +1,11 @@
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom';
-import { LayoutGrid, Settings, LogOut, UserRound } from 'lucide-react';
+import { LayoutGrid, Settings, LogOut, UserRound, FileSpreadsheet } from 'lucide-react';
+import { sistemasComRelatorio } from './pages/Relatorios.jsx';
 import { useAuth } from './auth.jsx';
 import Bell from './Bell.jsx';
 
 export default function Layout({ children }) {
-  const { user, logout } = useAuth();
+  const { user, logout, modules } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -18,6 +19,7 @@ export default function Layout({ children }) {
           </Link>
           <nav className="nav">
             <NavLink to="/" end><LayoutGrid size={16} /> <span>Início</span></NavLink>
+            {sistemasComRelatorio(modules).length > 0 && <NavLink to="/relatorios"><FileSpreadsheet size={16} /> <span>Relatórios</span></NavLink>}
             {user.is_admin && <NavLink to="/admin"><Settings size={16} /> <span>Administração</span></NavLink>}
           </nav>
           <div className="user-area">

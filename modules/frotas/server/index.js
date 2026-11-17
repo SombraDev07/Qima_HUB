@@ -66,7 +66,7 @@ export default {
   },
 
   router(r, ctx) {
-    const { db, requireRole, notify, usuariosComPerfil, arquivos, files } = ctx;
+    const { db, requireRole, notify, usuariosComPerfil, arquivos, files, limitar } = ctx;
     const sol = requireRole('solicitante');
     const cen = requireRole('central');
     const isCentral = (req) => ['central', 'ambos'].includes(req.moduleRole);
@@ -170,7 +170,7 @@ export default {
       } catch (e) { erro(res, e); }
     });
 
-    r.post('/veiculos/:id/fotos', express.raw({ type: () => true, limit: MAX_UPLOAD }), async (req, res) => {
+    r.post('/veiculos/:id/fotos', limitar({ nome: 'foto', max: 120 }), express.raw({ type: () => true, limit: MAX_UPLOAD }), async (req, res) => {
       let arquivo = null;
       try {
         const v = await veiculoVisivel(db, req);

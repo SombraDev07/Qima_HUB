@@ -2,7 +2,7 @@
 // Roda na partida do servidor (desenvolvimento) ou com "npm run migrate" (produção/Vercel).
 import { pg } from './pg.js';
 
-const TABELAS = ['users', 'sessions', 'modules', 'user_modules', 'outbox', 'settings', 'ai_uso', 'module_migrations'];
+const TABELAS = ['users', 'sessions', 'modules', 'user_modules', 'outbox', 'settings', 'ai_uso', 'module_migrations', 'auth_limites', 'password_resets', 'audit_log'];
 
 const SQL = `
 CREATE TABLE IF NOT EXISTS users (
@@ -73,6 +73,38 @@ CREATE TABLE IF NOT EXISTS ai_uso (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS ai_uso_data ON ai_uso (created_at);
+
+-- Bloqueio de tentativas de login / recuperação (vale em todas as instâncias do servidor)
+CREATE TABLE IF NOT EXISTS auth_limites (
+  chave         TEXT PRIMARY KEY,
+  falhas        INTEGER NOT NULL DEFAULT 0,
+  janela_inicio TIMESTAMPTZ NOT NULL DEFAULT now(),
+  bloqueado_ate TIMESTAMPTZ
+);
+
+-- Links de redefinição de senha (só o hash do token fica guardado; vale uma vez)
+CREATE TABLE IF NOT EXISTS password_resets (
+  id         SERIAL PRIMARY KEY,
+  user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  token_hash TEXT NOT NULL UNIQUE,
+  expires_at TIMESTAMPTZ NOT NULL,
+  used_at    TIMESTAMPTZ,
+  criado_por INTEGER,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS password_resets_user ON password_resets (user_id);
+
+-- Trilha de auditoria: logins bloqueados, trocas de senha, mudanças de contas e perfis
+CREATE TABLE IF NOT EXISTS audit_log (
+  id            SERIAL PRIMARY KEY,
+  usuario_id    INTEGER,
+  usuario_email TEXT,
+  acao          TEXT NOT NULL,
+  detalhe       TEXT,
+  ip            TEXT,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS audit_log_data ON audit_log (created_at);
 
 -- Controle de versão do banco de cada módulo já migrado para o Postgres
 CREATE TABLE IF NOT EXISTS module_migrations (

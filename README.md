@@ -27,7 +27,7 @@ cards dos sistemas a que tem acesso. Em cada sistema existem dois perfis:
 | Perfil | O que faz |
 |---|---|
 | 🙋 **Solicitante** | Abre o pedido, acompanha, corrige e conversa com a central. Usa pelo celular. |
-| 🛠️ **Central** | Recebe, analisa e atende. Trabalha pelo navegador no computador. Baixa o **relatório em Excel do próprio sistema** (botão *Relatório* na barra), sem acesso a mais nada da Administração. |
+| 🛠️ **Central** | Recebe, analisa e atende. Também **cria os próprios pedidos** (usa a área do Solicitante). Baixa o **relatório em Excel** dos sistemas em que é Central pela página **Relatórios** (link no topo, ao lado de Início) ou pelo botão *Relatório* da barra do sistema, sem acesso a mais nada da Administração. |
 | 🧭 **RTV** | Perfil já cadastrável na Administração, mas **ainda sem telas**: reservado para uso futuro. |
 | ⚙️ **Administração** | Cria contas, define o perfil de cada pessoa por sistema, baixa relatórios e configura a IA. |
 
@@ -211,6 +211,8 @@ chamada externa (IA, e-mail) dentro de transação. O exemplo completo está em 
 ## 📚 Mais
 
 - [Plano de migração para Supabase + Vercel](docs/plano-migracao.md)
+- [Segurança: permissões, login, recuperação de senha e proteção contra abuso](docs/seguranca.md)
+- [Auditoria de segurança](docs/auditoria-seguranca.md) (achados, riscos em aberto e preparação para o Cloudflare)
 
 ---
 

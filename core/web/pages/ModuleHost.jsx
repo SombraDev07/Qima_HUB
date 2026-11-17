@@ -10,7 +10,7 @@ const loaders = import.meta.glob(['/modules/*/web/index.jsx', '!/modules/_*/**']
 const loaderFor = (key) => loaders[`/modules/${key}/web/index.jsx`];
 
 const VIEWS = { solicitante: 'Solicitante', central: 'Central' };
-const can = (role, wanted) => role === 'ambos' || role === wanted;
+const can = (role, wanted) => role === 'ambos' || role === wanted || (role === 'central' && wanted === 'solicitante');
 
 class ModuleErrorBoundary extends Component {
   state = { error: null };

@@ -58,7 +58,7 @@ export default {
   },
 
   router(r, ctx) {
-    const { db, requireRole, arquivos, ai, files, notify } = ctx;
+    const { db, requireRole, arquivos, ai, files, notify, limitar } = ctx;
     const sol = requireRole('solicitante');
     const cen = requireRole('central');
     const isCentral = (req) => ['central', 'ambos'].includes(req.moduleRole);
@@ -167,7 +167,7 @@ export default {
     }));
 
     // ============================================================ SOLICITANTE
-    r.post('/notas', sol, express.raw({ type: () => true, limit: MAX_UPLOAD }), async (req, res) => {
+    r.post('/notas', sol, limitar({ nome: 'envio', max: 40 }), express.raw({ type: () => true, limit: MAX_UPLOAD }), async (req, res) => {
       let arquivo = null;
       try {
         const mime = String(req.headers['content-type'] || '').split(';')[0];

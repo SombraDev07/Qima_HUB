@@ -3,7 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth.jsx';
 import { ModuleIcon } from '../shared/icons.jsx';
 
-const can = (role, wanted) => role === 'ambos' || role === wanted;
+// a Central também usa a área do Solicitante (cria os próprios pedidos)
+const can = (role, wanted) => role === 'ambos' || role === wanted || (role === 'central' && wanted === 'solicitante');
 
 function ModuleCard({ m }) {
   const navigate = useNavigate();

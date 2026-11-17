@@ -63,7 +63,7 @@ export default {
   },
 
   router(r, ctx) {
-    const { db, requireRole, notify, usuariosComPerfil, arquivos, files } = ctx;
+    const { db, requireRole, notify, usuariosComPerfil, arquivos, files, limitar } = ctx;
     const sol = requireRole('solicitante');
     const cen = requireRole('central');
     const isCentral = (req) => ['central', 'ambos'].includes(req.moduleRole);
@@ -122,7 +122,7 @@ export default {
 
     // ------------------------------------------------------------ planilhas
     // TODO(migração): os arquivos ainda ficam em disco local; passam para o Supabase Storage na etapa de arquivos.
-    r.post('/arquivos', sol, express.raw({ type: () => true, limit: MAX_UPLOAD }), async (req, res) => {
+    r.post('/arquivos', sol, limitar({ nome: 'planilha', max: 30 }), express.raw({ type: () => true, limit: MAX_UPLOAD }), async (req, res) => {
       let arquivo = null;
       try {
         const nome = path.basename(String(req.query.nome || '')).slice(0, 200);

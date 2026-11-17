@@ -4,6 +4,8 @@ import Layout from './Layout.jsx';
 import Login from './pages/Login.jsx';
 import Home from './pages/Home.jsx';
 import Admin from './pages/Admin.jsx';
+import { EsqueciSenha, RedefinirSenha } from './pages/RecuperarSenha.jsx';
+import Relatorios from './pages/Relatorios.jsx';
 import Account from './pages/Account.jsx';
 import ModuleHost from './pages/ModuleHost.jsx';
 
@@ -20,8 +22,11 @@ export default function App() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
+      <Route path="/esqueci-senha" element={<EsqueciSenha />} />
+      <Route path="/redefinir-senha" element={<RedefinirSenha />} />
       <Route path="/" element={<Protected><Home /></Protected>} />
       <Route path="/admin" element={<Protected admin><Admin /></Protected>} />
+      <Route path="/relatorios" element={<Protected><Relatorios /></Protected>} />
       <Route path="/conta" element={<Protected><Account /></Protected>} />
       <Route path="/m/:key/:view/*" element={<Protected><ModuleHost /></Protected>} />
       <Route path="*" element={<Navigate to="/" replace />} />

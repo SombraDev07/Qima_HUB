@@ -31,7 +31,7 @@ export default function Account() {
           <h3>Alterar senha</h3>
           {msg && <Alert kind={msg.kind}>{msg.text}</Alert>}
           <Field label="Senha atual"><input type="password" value={form.current} onChange={set('current')} required autoComplete="current-password" /></Field>
-          <Field label="Nova senha"><input type="password" value={form.next} onChange={set('next')} required minLength={6} autoComplete="new-password" /></Field>
+          <Field label="Nova senha"><input type="password" value={form.next} onChange={set('next')} required minLength={8} maxLength={128} autoComplete="new-password" /></Field>
           <Field label="Confirmar nova senha"><input type="password" value={form.confirm} onChange={set('confirm')} required autoComplete="new-password" /></Field>
           <div><Button type="submit">Salvar</Button></div>
         </form>

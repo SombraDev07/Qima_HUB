@@ -21,6 +21,26 @@ export function verifyPassword(password, stored) {
   return calc.length === expected.length && crypto.timingSafeEqual(calc, expected);
 }
 
+const scryptAsync = (senha, salt) => new Promise((ok, erro) => crypto.scrypt(senha, salt, 64, (e, k) => (e ? erro(e) : ok(k))));
+
+/** Versão assíncrona (não trava o servidor durante o cálculo). Use no login, que roda antes de saber quem é a pessoa. */
+export async function verifyPasswordAsync(password, stored) {
+  const [salt, hash] = String(stored).split(':');
+  if (!salt || !hash) return false;
+  const calc = await scryptAsync(password, salt);
+  const expected = Buffer.from(hash, 'hex');
+  return calc.length === expected.length && crypto.timingSafeEqual(calc, expected);
+}
+// Conta inexistente gasta o mesmo tempo de uma existente (não revela quais e-mails estão cadastrados).
+const HASH_FALSO = hashPassword(crypto.randomBytes(12).toString('hex'));
+export const gastarTempoDeSenha = (password) => verifyPasswordAsync(password, HASH_FALSO);
+
+/** Encerra as sessões da pessoa, menos (opcionalmente) a atual. */
+export function encerrarSessoes(userId, manterReq = null, t = pg) {
+  const sid = manterReq ? parseCookies(manterReq)[COOKIE] : null;
+  return t.run('DELETE FROM sessions WHERE user_id = ? AND id <> ?', userId, sid ? hashSessao(sid) : '');
+}
+
 function parseCookies(req) {
   const out = {};
   for (const part of (req.headers.cookie || '').split(';')) {
@@ -30,9 +50,12 @@ function parseCookies(req) {
   return out;
 }
 
+// No banco fica só o hash da sessão: quem lesse a tabela não conseguiria usar os cookies.
+const hashSessao = (id) => crypto.createHash('sha256').update(String(id)).digest('hex');
+
 export async function createSession(res, userId) {
   const id = crypto.randomBytes(32).toString('hex');
-  await pg.run('INSERT INTO sessions (id, user_id, expires_at) VALUES (?, ?, ?)', id, userId, Date.now() + SESSION_MS);
+  await pg.run('INSERT INTO sessions (id, user_id, expires_at) VALUES (?, ?, ?)', hashSessao(id), userId, Date.now() + SESSION_MS);
   res.cookie(COOKIE, id, {
     httpOnly: true,
     sameSite: 'lax',
@@ -43,7 +66,7 @@ export async function createSession(res, userId) {
 
 export async function destroySession(req, res) {
   const sid = parseCookies(req)[COOKIE];
-  if (sid) await pg.run('DELETE FROM sessions WHERE id = ?', sid);
+  if (sid) await pg.run('DELETE FROM sessions WHERE id = ?', hashSessao(sid));
   res.clearCookie(COOKIE);
 }
 
@@ -55,7 +78,7 @@ export const loadUser = a(async (req, _res, next) => {
       SELECT u.id, u.name, u.email, u.is_admin
       FROM sessions s JOIN users u ON u.id = s.user_id
       WHERE s.id = ? AND s.expires_at > ? AND u.active
-    `, sid, Date.now());
+    `, hashSessao(sid), Date.now());
   }
   next();
 });
@@ -70,9 +93,9 @@ export function requireAdmin(req, res, next) {
   next();
 }
 
-/** 'ambos' satisfaz qualquer papel. */
+/** 'ambos' satisfaz qualquer papel; a Central também pode fazer tudo o que o Solicitante faz (criar os próprios pedidos). */
 export function hasRole(role, wanted) {
-  return role === 'ambos' || role === wanted;
+  return role === 'ambos' || role === wanted || (role === 'central' && wanted === 'solicitante');
 }
 
 export async function cleanExpiredSessions() {

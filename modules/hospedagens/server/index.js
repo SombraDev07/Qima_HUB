@@ -154,12 +154,12 @@ export default {
     }));
 
     r.post('/pessoas', h(async (req, t) => {
-      const nome = String(req.body?.nome || '').trim();
+      const campo = (v, max) => String(v ?? '').trim().slice(0, max) || null;
+      const nome = campo(req.body?.nome, 120);
       if (!nome) throw new RuleError('Informe o nome');
       if (await t.get('SELECT 1 FROM hospedagens_pessoas WHERE lower(nome) = lower(?) AND ativo', nome)) throw new RuleError('Já existe uma pessoa com esse nome no banco.');
-      const { email, funcao, cidade } = req.body;
       return t.get('INSERT INTO hospedagens_pessoas (nome, email, funcao, cidade) VALUES (?, ?, ?, ?) RETURNING id, nome, email, funcao, cidade',
-        nome, email || null, funcao || null, cidade || null);
+        nome, campo(req.body.email, 160), campo(req.body.funcao, 80), campo(req.body.cidade, 80));
     }));
 
     // ============================================================ SOLICITANTE

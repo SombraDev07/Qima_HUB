@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Pencil, Plus, Trash2, X, Search, AlertTriangle } from 'lucide-react';
+import { Pencil, Plus, Trash2, X, Search, AlertTriangle, KeyRound, LockOpen } from 'lucide-react';
+import { fmtDateTime } from '../shared/kit.jsx';
 import { api } from '../shared/api.js';
 import { useAuth } from '../auth.jsx';
 import { Alert, Badge, Button, Card, Field, PageHeader } from '../shared/ui.jsx';
@@ -66,8 +67,8 @@ function UserForm({ initial, modules, onClose, onSaved }) {
           <div className="grid-2">
             <Field label="Nome"><input value={form.name} onChange={(e) => set('name', e.target.value)} required /></Field>
             <Field label="E-mail"><input type="email" value={form.email} onChange={(e) => set('email', e.target.value)} required /></Field>
-            <Field label={editing ? 'Nova senha' : 'Senha'} hint={editing ? 'Deixe em branco para manter a atual' : 'Mínimo de 6 caracteres'}>
-              <input type="password" value={form.password || ''} onChange={(e) => set('password', e.target.value)} required={!editing} minLength={6} autoComplete="new-password" />
+            <Field label={editing ? 'Nova senha' : 'Senha'} hint={editing ? 'Deixe em branco para manter a atual' : 'Mínimo de 8 caracteres, nada óbvio'}>
+              <input type="password" value={form.password || ''} onChange={(e) => set('password', e.target.value)} required={!editing} minLength={8} maxLength={128} autoComplete="new-password" />
             </Field>
             <div className="checks">
               <label className="check"><input type="checkbox" checked={form.active} onChange={(e) => set('active', e.target.checked)} /> Conta ativa</label>
@@ -130,8 +131,39 @@ function UsersTab({ modules }) {
     }
   };
 
+  const [link, setLink] = useState(null);
+  const gerarLink = async (u) => {
+    setError('');
+    try { setLink({ nome: u.name, ...(await api(`/api/admin/users/${u.id}/reset-link`, { method: 'POST', body: {} })) }); } catch (e) { setError(e.message); }
+  };
+  const desbloquear = async (u) => {
+    setError('');
+    try { await api(`/api/admin/users/${u.id}/desbloquear`, { method: 'POST', body: {} }); setLink({ nome: u.name, aviso: 'Login desbloqueado: a pessoa já pode tentar entrar de novo.' }); } catch (e) { setError(e.message); }
+  };
+
   return (
     <>
+      {link && (
+        <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && setLink(null)}>
+          <div className="modal">
+            <div className="modal-head"><h3>{link.link ? `Nova senha de ${link.nome}` : link.nome}</h3>
+              <button type="button" className="icon-btn" onClick={() => setLink(null)} aria-label="Fechar"><X size={18} /></button></div>
+            <div className="modal-body">
+              {link.aviso && <p>{link.aviso}</p>}
+              {link.link && (
+                <>
+                  <p className="muted small">Entregue este link à pessoa. Vale por {link.expira_em_min} minutos e só pode ser usado uma vez. Ele não aparece de novo; gere outro se precisar.</p>
+                  <input readOnly value={link.link} onFocus={(e) => e.target.select()} />
+                </>
+              )}
+            </div>
+            <div className="modal-foot">
+              {link.link && <Button variant="outline" onClick={() => navigator.clipboard?.writeText(link.link)}>Copiar link</Button>}
+              <Button onClick={() => setLink(null)}>Fechar</Button>
+            </div>
+          </div>
+        </div>
+      )}
       <div className="toolbar">
         <div className="search">
           <Search size={16} />
@@ -168,6 +200,8 @@ function UsersTab({ modules }) {
                   </div>
                 </td>
                 <td className="row-actions">
+                  <button className="icon-btn" title="Gerar link para criar nova senha" onClick={() => gerarLink(u)}><KeyRound size={16} /></button>
+                  <button className="icon-btn" title="Desbloquear login (excesso de tentativas)" onClick={() => desbloquear(u)}><LockOpen size={16} /></button>
                   <button className="icon-btn" title="Editar" onClick={() => setEditing({ ...u, password: '' })}><Pencil size={16} /></button>
                   {u.id !== me.id && <button className="icon-btn danger" title="Excluir" onClick={() => remove(u)}><Trash2 size={16} /></button>}
                 </td>
@@ -259,6 +293,43 @@ function ModulesTab({ modules, reload }) {
   );
 }
 
+// ===================================================================== Auditoria
+
+const ACAO = {
+  login_falhou: 'Login errado', login_bloqueado: 'Login bloqueado (excesso de tentativas)', login_desbloqueado: 'Login desbloqueado',
+  senha_alterada: 'Senha alterada', senha_redefinida: 'Senha redefinida pelo link', senha_link_pedido: 'Link de senha pedido', senha_link_gerado: 'Link de senha gerado pela administração',
+  usuario_criado: 'Conta criada', usuario_alterado: 'Conta alterada', usuario_excluido: 'Conta excluída',
+};
+
+function AuditoriaTab() {
+  const [lista, setLista] = useState(null);
+  const [erro, setErro] = useState('');
+  useEffect(() => { api('/api/admin/auditoria').then(setLista).catch((e) => setErro(e.message)); }, []);
+  return (
+    <>
+      <p className="muted small">Últimos 300 eventos de segurança: logins errados e bloqueados, trocas de senha, criação e mudança de contas e perfis.</p>
+      <Alert>{erro}</Alert>
+      <Card className="table-card">
+        <table className="table">
+          <thead><tr><th>Quando</th><th>Evento</th><th>Conta</th><th>Detalhe</th><th>IP</th></tr></thead>
+          <tbody>
+            {(lista || []).map((x) => (
+              <tr key={x.id}>
+                <td className="small">{fmtDateTime(x.created_at)}</td>
+                <td>{ACAO[x.acao] || x.acao}</td>
+                <td className="small">{x.usuario_email || '-'}</td>
+                <td className="small">{x.detalhe || ''}</td>
+                <td className="small">{x.ip || ''}</td>
+              </tr>
+            ))}
+            {lista && !lista.length && <tr><td colSpan={5} className="muted center">Nada registrado ainda</td></tr>}
+          </tbody>
+        </table>
+      </Card>
+    </>
+  );
+}
+
 // ===================================================================== Página
 
 export default function Admin() {
@@ -276,11 +347,13 @@ export default function Admin() {
         <button className={tab === 'modules' ? 'active' : ''} onClick={() => setTab('modules')}>Sistemas</button>
         <button className={tab === 'relatorios' ? 'active' : ''} onClick={() => setTab('relatorios')}>Relatórios</button>
         <button className={tab === 'ia' ? 'active' : ''} onClick={() => setTab('ia')}>Inteligência artificial</button>
+        <button className={tab === 'auditoria' ? 'active' : ''} onClick={() => setTab('auditoria')}>Segurança</button>
       </div>
       {tab === 'users' && <UsersTab modules={modules} />}
       {tab === 'modules' && <ModulesTab modules={modules} reload={loadModules} />}
       {tab === 'relatorios' && <Relatorios />}
       {tab === 'ia' && <IA />}
+      {tab === 'auditoria' && <AuditoriaTab />}
     </>
   );
 }

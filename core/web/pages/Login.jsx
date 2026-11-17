@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Navigate, useLocation, useNavigate } from 'react-router-dom';
+import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth.jsx';
 import { Alert } from '../shared/ui.jsx';
 
@@ -63,6 +63,7 @@ export default function Login() {
           <button className="btn btn-brand btn-block" disabled={busy}>
             {busy ? 'Entrando…' : 'Entrar'}
           </button>
+          <p className="login-foot"><Link to="/esqueci-senha">Esqueci minha senha</Link></p>
           <p className="login-foot muted">Não tem acesso? Fale com a administração do HUB.</p>
         </form>
       </section>

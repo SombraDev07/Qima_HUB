@@ -61,7 +61,7 @@ export default {
 
   router(r, ctx) {
     const { db, requireRole, notify, usuariosComPerfil } = ctx;
-    const sol = requireRole('solicitante');
+    const sol = requireRole('solicitante'); // a central também passa (cria os próprios pedidos)
     const cen = requireRole('central');
 
     function erro(res, err) {

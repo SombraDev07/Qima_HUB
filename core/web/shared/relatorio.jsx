@@ -16,7 +16,7 @@ function periodo(tipo) {
 }
 const ATALHOS = [['mes', 'Este mês'], ['mes_passado', 'Mês passado'], ['30', 'Últimos 30 dias'], ['90', 'Últimos 90 dias'], ['ano', 'Este ano']];
 
-function Janela({ modulo, titulo, onClose }) {
+export function Janela({ modulo, titulo, onClose }) {
   const [[de, ate], setPer] = useState(() => periodo('mes'));
   const [atalho, setAtalho] = useState('mes');
   const valido = de && ate && ate >= de;

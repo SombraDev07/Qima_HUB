@@ -116,7 +116,9 @@ export function FiltroSelect({ label, value, onChange, options }) {
 /** Exporta linhas para CSV (abre no Excel com acentuação correta). */
 export function exportCsv(nome, colunas, linhas) {
   const esc = (v) => {
-    const s = v === null || v === undefined ? '' : String(v);
+    let s = v === null || v === undefined ? '' : String(v);
+    // CSV injection: texto começando com = + - @ vira fórmula no Excel. O apóstrofo força texto (números negativos ficam como estão).
+    if (typeof v !== 'number' && /^[=+\-@\t\r]/.test(s) && !/^-?\d+([.,]\d+)?$/.test(s)) s = `'${s}`;
     return /[;"\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
   const csv = [colunas.map((c) => esc(c.label)).join(';'), ...linhas.map((l) => colunas.map((c) => esc(c.get(l))).join(';'))].join('\r\n');

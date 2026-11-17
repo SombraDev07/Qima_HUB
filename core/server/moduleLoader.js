@@ -7,6 +7,7 @@ import express from 'express';
 import { dataDir } from './db.js';
 import { pg } from './pg.js';
 import { requireAuth, hasRole, a } from './auth.js';
+import { contar } from './lib/seguranca.js';
 import { createZip } from './lib/zip.js';
 import { buildXlsx } from './lib/xlsx.js';
 import { aiParaModulo } from './lib/ai.js';
@@ -50,6 +51,15 @@ function makeContext(key) {
       hasRole(req.moduleRole, wanted) ? next() : res.status(403).json({ error: `Requer perfil ${wanted}` }),
     /** Envolve uma rota assíncrona: erro não tratado vira resposta 500. */
     a,
+    /**
+     * Limite de uso por pessoa (ex.: envios que gastam IA ou armazenamento). Middleware: coloque antes de ler o corpo.
+     *   r.post('/notas', sol, limitar({ nome: 'envio', max: 40, janelaMin: 10 }), express.raw(...), ...)
+     */
+    limitar: ({ nome, max, janelaMin = 10 }) => a(async (req, res, next) => {
+      const n = await contar(`uso:${key}:${nome}:${req.user.id}`, { max, janelaMin, bloqueioMin: 1 });
+      if (n > max) { res.setHeader('Retry-After', janelaMin * 60); return res.status(429).json({ error: `Muitos envios em pouco tempo. Aguarde alguns minutos e tente de novo.` }); }
+      next();
+    }),
     /** Postgres: await db.get / db.all / db.run / db.tx(async (t) => …). */
     db: pg,
     // ATENÇÃO: dentro de db.tx use só o "t" (inclusive nas duas funções abaixo, passando-o como
