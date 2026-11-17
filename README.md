@@ -41,6 +41,8 @@ cards dos sistemas a que tem acesso. Em cada sistema existem dois perfis:
 | 👷 | **Contratação** | Vagas, candidatos e demissões | Banco de pessoas, CPF validado, importação de planilha |
 | 🚗 | **Frotas** | Pedidos de veículo e chamados | 8 fotos obrigatórias com GPS, troca de placa e de condutor, controle mestre |
 | 📋 | **Solicitações** | Pedidos para a Central Harvest | Planilha Excel ou dados digitados, chat de correção, quadro em 4 colunas |
+| 💻 | **Equipamentos** | Notebooks, celulares, monitores e chips | Operação pede em rascunhos, o Administrativo reserva e envia, troca de responsável, devolução e baixa com histórico |
+| 🗂️ | **Caju** | Versão anterior de equipamentos (SharePoint) | Reservado, ainda sem telas |
 
 Cada sistema tem seu próprio sininho, mostrando só as pendências dele.
 
@@ -122,7 +124,7 @@ Com o servidor rodando:
 npm run seed
 ```
 
-Cria contas, cadastros e pedidos em todos os estados dos 6 sistemas, com cupons e notas fictícias.
+Cria contas, cadastros e pedidos em todos os estados dos 6 primeiros sistemas (Equipamentos ainda não tem dados de teste), com cupons e notas fictícias.
 Contas criadas (senha `teste123`): `marina@`, `rafael@`, `joana@qima.local` (solicitantes) e `central@qima.local` (central).
 
 > ⚠️ O seed grava no banco apontado por `DATABASE_URL`. Se for o do Supabase, os dados de teste vão para lá.

@@ -1,0 +1,65 @@
+/* Equipamentos — paleta padrão do HUB (azul-escuro #0c303e, vermelho QIMA). Prefixo eq- */
+.eq-m0 { margin: 0 0 10px; }
+.eq-label { font-size: 12px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; margin: 14px 0 6px; }
+.eq-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 14px; }
+@media (max-width: 640px) { .eq-grid2 { grid-template-columns: 1fr; } }
+
+/* status */
+.eq-st { display: inline-block; font-size: 12px; font-weight: 700; padding: 3px 11px; border-radius: 6px; white-space: nowrap; vertical-align: middle; }
+.eq-st-azul { background: #e5eefb; color: #1d4f91; }
+.eq-st-verde { background: #e3f5ea; color: #0f7a4b; }
+.eq-st-laranja { background: #ffe8d1; color: #b45309; border: 1px solid #f5c88a; }
+.eq-st-cinza { background: #f0f1f3; color: var(--muted); }
+
+/* cartões de números */
+.eq-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 14px; }
+.eq-kpi { font: inherit; text-align: left; background: var(--panel, #fff); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+button.eq-kpi { cursor: pointer; }
+button.eq-kpi:hover { border-color: #0c303e; }
+.eq-kpi.on { background: #0c303e; border-color: #0c303e; color: #fff; }
+.eq-kpi-r { font-size: 12.5px; font-weight: 600; color: var(--muted); }
+.eq-kpi.on .eq-kpi-r { color: #cfe0e7; }
+.eq-kpi-v { font-size: 26px; font-weight: 700; line-height: 1.2; }
+
+/* filtros e barra de ações em massa */
+.eq-filtros { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 12px; }
+.eq-busca { flex: 2 1 260px; }
+.eq-barra { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; background: #f4f6f8; border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; margin-bottom: 12px; font-size: 14px; }
+.eq-barra-acoes { display: flex; gap: 8px; flex-wrap: wrap; }
+.eq-abas { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+.eq-abas button { border: none; background: #dfe5e9; color: #0c303e; border-radius: 999px; padding: 8px 22px; font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; }
+.eq-abas button.on { background: #0c303e; color: #fff; }
+
+/* tabelas */
+.eq-card-tabela { padding: 0; overflow-x: auto; }
+.eq-table th { background: #0c303e; color: #fff; border-bottom: none; white-space: nowrap; font-size: 12.5px; }
+.eq-table .num { text-align: right; }
+.eq-table tr.eq-sel td { background: #eef4f8; }
+.eq-acoes { text-align: right; white-space: nowrap; }
+.eq-acoes > * + * { margin-left: 6px; }
+.eq-icos { white-space: nowrap; }
+.eq-ico { display: inline-grid; place-items: center; width: 30px; height: 30px; margin-right: 4px; border: 1px solid var(--line); background: #fff; border-radius: 8px; color: #0c303e; cursor: pointer; }
+.eq-ico:hover { background: #eef4f8; }
+.eq-ico-azul { background: #0c303e; border-color: #0c303e; color: #fff; }
+.eq-ico-azul:hover { background: #134556; }
+.eq-ico-perigo { color: #b42318; border-color: #f1b5bd; }
+.eq-ico-perigo:hover { background: #fdeceb; }
+.eq-obs { max-width: 260px; }
+.eq-mais { display: flex; justify-content: center; padding: 14px; border-top: 1px solid var(--line); }
+
+/* formulário de itens */
+.eq-itens { display: grid; gap: 8px; margin-bottom: 10px; }
+.eq-item { display: grid; grid-template-columns: 1fr 90px 130px 36px; gap: 8px; align-items: center; }
+
+/* detalhe da solicitação */
+.eq-det { display: grid; gap: 14px; }
+.eq-dados { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px 18px; background: #f4f6f8; border-radius: 10px; padding: 14px; }
+.eq-dado-k { font-size: 12px; color: var(--muted); }
+.eq-dado-obs { grid-column: 1 / -1; font-size: 14px; }
+.eq-bloco { border: 1px solid var(--line); border-radius: 10px; padding: 12px; display: grid; gap: 8px; }
+.eq-bloco-top { display: flex; justify-content: space-between; align-items: center; }
+.eq-anexo { display: flex; justify-content: space-between; align-items: center; background: #f4f6f8; border-radius: 8px; padding: 6px 10px; font-size: 14px; }
+.eq-anexar { display: flex; gap: 8px; }
+.eq-anexar select { flex: 1; }
+.eq-hist { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.eq-hist li { border-left: 3px solid #0c303e; padding: 2px 0 2px 10px; }
