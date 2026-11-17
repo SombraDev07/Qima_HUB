@@ -1,14 +1,12 @@
-import express from 'express';
+﻿import express from 'express';
 import { pg } from './pg.js';
 import { a, hashPassword } from './auth.js';
-import { registry, moduleRelatorio, versoesDoBanco } from './moduleLoader.js';
+import { registry, versoesDoBanco } from './moduleLoader.js';
 import { aiCarregar, aiConfigPublica, aiSalvar, aiTestar, aiUso } from './lib/ai.js';
-import { buildXlsx } from './lib/xlsx.js';
+import { ErroRelatorio, enviarExcel, gerarExcel, sistemasComRelatorio } from './relatorios.js';
 
-const isDate = (s) => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s) && !Number.isNaN(Date.parse(s));
-const brDate = (s) => `${s.slice(8, 10)}/${s.slice(5, 7)}/${s.slice(0, 4)}`;
-
-const ROLES = new Set(['solicitante', 'central', 'ambos']);
+// 'rtv' existe como perfil, mas ainda não dá acesso a nenhuma tela (ver moduleLoader.js).
+const ROLES = new Set(['solicitante', 'central', 'ambos', 'rtv']);
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 async function saveAccess(t, userId, access) {
@@ -131,54 +129,18 @@ export function adminRouter() {
   }));
 
   // ---------- Relatórios (Excel por sistema, com filtro de datas) ----------
-  const comRelatorio = async () => {
-    const state = await estados();
-    return [...registry.values()].filter(({ impl, error }) => !error && typeof impl.relatorio === 'function')
-      .map(({ manifest }) => manifest)
-      .sort((x, y) => (state[x.key]?.sort_order ?? 99) - (state[y.key]?.sort_order ?? 99));
-  };
-
-  r.get('/relatorios', a(async (_req, res) => res.json((await comRelatorio()).map((m) => ({ key: m.key, title: m.title, icon: m.icon, labels: m.labels })))));
+  r.get('/relatorios', a(async (_req, res) => res.json((await sistemasComRelatorio()).map((m) => ({ key: m.key, title: m.title, icon: m.icon, labels: m.labels })))));
 
   // /relatorios/<chave>.xlsx ou /relatorios/todos.xlsx  ?de=AAAA-MM-DD&ate=AAAA-MM-DD
   r.get('/relatorios/:arq', a(async (req, res) => {
     const m = String(req.params.arq).match(/^([\w-]+)\.xlsx$/);
-    const { de, ate } = req.query;
     if (!m) return res.status(404).json({ error: 'Relatório não encontrado' });
-    if (!isDate(de) || !isDate(ate)) return res.status(400).json({ error: 'Informe as datas de e até' });
-    if (ate < de) return res.status(400).json({ error: 'A data final é antes da inicial' });
-    const todos = m[1] === 'todos';
-    const mods = (await comRelatorio()).filter((x) => todos || x.key === m[1]);
-    if (!mods.length) return res.status(404).json({ error: 'Sistema sem relatório' });
-
-    const abas = [];
-    const resumo = [];
-    for (const mod of mods) {
-      let rel;
-      try { rel = await moduleRelatorio(mod.key, { de, ate }); } catch (e) {
-        console.error(`[relatório ${mod.key}]`, e);
-        resumo.push([mod.title, null, null, `Erro ao gerar: ${e.message}`]);
-        continue;
-      }
-      if (!rel) continue;
-      const pref = todos ? `${mod.title} · ` : '';
-      const lab = mod.labels || {};
-      abas.push({ name: `${pref}Solicitante`, ...rel.solicitante });
-      abas.push({ name: `${pref}Central`, ...rel.central });
-      for (const x of rel.extras || []) abas.push({ ...x, name: `${pref}${x.name}` });
-      resumo.push([mod.title, rel.solicitante.rows.length, rel.central.rows.length,
-        `Aba "Solicitante" = ${lab.solicitante || 'quem pede'} · aba "Central" = ${lab.central || 'quem atende'}${(rel.extras || []).length ? ` · também: ${rel.extras.map((x) => x.name).join(', ')}` : ''}`]);
+    try {
+      enviarExcel(res, await gerarExcel({ chave: m[1], de: req.query.de, ate: req.query.ate, quem: req.user.name }));
+    } catch (e) {
+      if (e instanceof ErroRelatorio) return res.status(e.status).json({ error: e.message });
+      throw e;
     }
-    const capa = {
-      name: 'Resumo',
-      columns: [{ label: 'Sistema', width: 18 }, { label: 'Linhas na aba Solicitante', width: 14 }, { label: 'Linhas na aba Central', width: 14 }, { label: 'Observação', width: 90 }],
-      rows: [...resumo, [], [`Período: ${brDate(de)} a ${brDate(ate)} (data de criação do pedido)`], [`Gerado em ${new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })} por ${req.user.name}`]],
-    };
-    const xlsx = buildXlsx([capa, ...abas]);
-    const nome = `${todos ? 'qima-hub' : mods[0].key}_${de}_a_${ate}.xlsx`;
-    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', `attachment; filename="${nome}"`);
-    res.send(xlsx);
   }));
 
   return r;

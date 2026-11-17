@@ -27,7 +27,8 @@ cards dos sistemas a que tem acesso. Em cada sistema existem dois perfis:
 | Perfil | O que faz |
 |---|---|
 | 🙋 **Solicitante** | Abre o pedido, acompanha, corrige e conversa com a central. Usa pelo celular. |
-| 🛠️ **Central** | Recebe, analisa e atende. Trabalha pelo navegador no computador. |
+| 🛠️ **Central** | Recebe, analisa e atende. Trabalha pelo navegador no computador. Baixa o **relatório em Excel do próprio sistema** (botão *Relatório* na barra), sem acesso a mais nada da Administração. |
+| 🧭 **RTV** | Perfil já cadastrável na Administração, mas **ainda sem telas**: reservado para uso futuro. |
 | ⚙️ **Administração** | Cria contas, define o perfil de cada pessoa por sistema, baixa relatórios e configura a IA. |
 
 ## 🧩 Sistemas

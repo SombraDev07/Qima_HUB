@@ -9,7 +9,7 @@ import Relatorios from './admin/Relatorios.jsx';
 import IA from './admin/IA.jsx';
 import './admin/admin.css';
 
-const ROLE_LABEL = { solicitante: 'Solicitante', central: 'Central', ambos: 'Solicitante + Central' };
+const ROLE_LABEL = { solicitante: 'Solicitante', central: 'Central', ambos: 'Solicitante + Central', rtv: 'RTV' };
 
 // ===================================================================== Usuários
 
@@ -90,6 +90,7 @@ function UserForm({ initial, modules, onClose, onSaved }) {
                   <option value="solicitante">Solicitante</option>
                   <option value="central">Central</option>
                   <option value="ambos">Solicitante + Central</option>
+                  <option value="rtv">RTV (sem telas por enquanto)</option>
                 </select>
               </div>
             ))}

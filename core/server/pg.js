@@ -66,7 +66,9 @@ async function abrirRemoto(url) {
   const texto = (oid, parse = (s) => s) => ({ to: oid, from: [oid], serialize: (v) => (v instanceof Date ? v.toISOString() : String(v)), parse });
   const sql = postgres(url, {
     prepare: false, // exigido pelo pooler do Supabase em modo transação
-    max: Number(process.env.QIMA_PG_CONEXOES) || (process.env.VERCEL ? 1 : 5),
+    max: Number(process.env.QIMA_PG_CONEXOES) || (process.env.VERCEL ? 3 : 5),
+    // Sem isso, várias consultas juntas numa conexão travam no pooler do Supabase (modo transação).
+    max_pipeline: 1,
     idle_timeout: 20,
     connect_timeout: 10,
     connection: { TimeZone: 'UTC' },

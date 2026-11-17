@@ -86,6 +86,7 @@ export async function loadModules(app, { migrar = true } = {}) {
             LEFT JOIN user_modules um ON um.module_key = m.key AND um.user_id = ? WHERE m.key = ?`, req.user.id, name);
           if (!mod?.enabled || mod.status !== 'ativo') return res.status(503).json({ error: 'Sistema indisponível' });
           if (!mod.role) return res.status(403).json({ error: 'Sem acesso a este sistema' });
+          if (mod.role === 'rtv') return res.status(403).json({ error: 'O perfil RTV ainda não tem acesso a este sistema.' });
           req.moduleRole = mod.role;
           next();
         }));

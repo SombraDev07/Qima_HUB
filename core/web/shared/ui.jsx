@@ -4,6 +4,8 @@ import { Link, NavLink, useLocation } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
 import { ModuleIcon } from './icons.jsx';
 import Bell from '../Bell.jsx';
+import { useAuth } from '../auth.jsx';
+import { RelatorioBotao } from './relatorio.jsx';
 
 /**
  * Barra de navegação padrão de um sistema.
@@ -12,6 +14,10 @@ import Bell from '../Bell.jsx';
 export function ModuleNav({ icon, title, subtitle, links }) {
   // sininho só deste sistema e desta área (/m/<sistema>/<area>/...)
   const [, , modulo, area] = useLocation().pathname.split('/');
+  // quem é da Central do sistema baixa o relatório dele (Administração continua com tudo)
+  const { modules } = useAuth();
+  const papel = modules.find((m) => m.key === modulo)?.role;
+  const podeRelatorio = area === 'central' && (papel === 'central' || papel === 'ambos');
   return (
     <div className="mod-nav">
       <div className="mod-nav-brand">
@@ -25,6 +31,7 @@ export function ModuleNav({ icon, title, subtitle, links }) {
           </NavLink>
         ))}
       </nav>
+      {podeRelatorio && <RelatorioBotao modulo={modulo} titulo={title} />}
       {modulo && area && <div className="mod-nav-sino"><Bell modulo={modulo} area={area} /></div>}
     </div>
   );

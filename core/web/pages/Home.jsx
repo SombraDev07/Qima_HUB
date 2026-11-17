@@ -32,6 +32,7 @@ function ModuleCard({ m }) {
           {m.labels.central}
         </button>
       </div>
+      {m.role === 'rtv' && <p className="muted small" style={{ margin: '8px 0 0' }}>Perfil RTV: ainda sem telas neste sistema.</p>}
     </article>
   );
 }

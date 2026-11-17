@@ -10,6 +10,7 @@ import {
 } from './auth.js';
 import { loadModules, moduleSummary, moduleNotificacoes, registry } from './moduleLoader.js';
 import { adminRouter } from './admin.js';
+import { relatorioDoSistemaRouter } from './relatorios.js';
 import { aiIniciar } from './lib/ai.js';
 
 const portArg = process.argv.find((x) => x.startsWith('--port='));
@@ -65,7 +66,7 @@ app.get('/api/me', requireAuth, a(async (req, res) => {
       labels: manifest.labels || { solicitante: 'Solicitar', central: 'Central' },
       status: r.status,
       role: r.role,
-      summary: r.status === 'ativo' ? await moduleSummary(r.key, req.user, r.role) : null,
+      summary: r.status === 'ativo' && r.role !== 'rtv' ? await moduleSummary(r.key, req.user, r.role) : null,
     };
   }));
   res.json({ user: { ...req.user, is_admin: !!req.user.is_admin }, modules });
@@ -95,6 +96,8 @@ app.post('/api/me/password', requireAuth, a(async (req, res) => {
 app.use('/api/admin', requireAuth, requireAdmin, adminRouter());
 
 // ---------- Sistemas ----------
+// relatório do próprio sistema, para quem é da Central dele (antes das rotas dos sistemas)
+app.use('/api/m', relatorioDoSistemaRouter());
 await loadModules(app, { migrar: !SERVERLESS });
 await aiIniciar();
 

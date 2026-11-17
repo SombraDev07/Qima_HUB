@@ -36,7 +36,7 @@ CREATE TABLE IF NOT EXISTS modules (
 CREATE TABLE IF NOT EXISTS user_modules (
   user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   module_key TEXT NOT NULL,
-  role       TEXT NOT NULL CHECK (role IN ('solicitante','central','ambos')),
+  role       TEXT NOT NULL CHECK (role IN ('solicitante','central','ambos','rtv')),
   PRIMARY KEY (user_id, module_key)
 );
 CREATE INDEX IF NOT EXISTS user_modules_mod ON user_modules (module_key, role);
@@ -85,6 +85,13 @@ CREATE TABLE IF NOT EXISTS module_migrations (
 
 export async function migrarNucleo() {
   await pg.exec(SQL);
+  // Bancos criados antes do perfil RTV: amplia a regra dos perfis aceitos (só mexe se ainda não tiver o RTV).
+  await pg.exec(`DO $$ BEGIN
+    IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'user_modules_role_check' AND pg_get_constraintdef(oid) NOT LIKE '%rtv%') THEN
+      ALTER TABLE user_modules DROP CONSTRAINT user_modules_role_check;
+      ALTER TABLE user_modules ADD CONSTRAINT user_modules_role_check CHECK (role IN ('solicitante','central','ambos','rtv'));
+    END IF;
+  END $$;`);
   // No Supabase as tabelas ficam visíveis pela API pública dele. Com RLS ligado e nenhuma
   // política, só o servidor do HUB (dono das tabelas) consegue ler e gravar.
   await pg.exec(TABELAS.map((t) => `ALTER TABLE ${t} ENABLE ROW LEVEL SECURITY;`).join('\n'));

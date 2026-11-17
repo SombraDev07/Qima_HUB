@@ -286,3 +286,14 @@ input[type='checkbox'] { width: auto; accent-color: var(--primary); }
   .module-grid { grid-template-columns: 1fr; }
   .access-row select { width: 160px; }
 }
+
+/* botão Relatório da barra de cada sistema (só Central) e a janela de período */
+.mod-nav-rel { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); background: #fff; color: #0c303e;
+  border-radius: 9px; padding: 7px 12px; font: inherit; font-size: 13.5px; font-weight: 600; cursor: pointer; }
+.mod-nav-rel:hover { background: #f1f5f7; border-color: #9fb0bc; }
+.mod-nav-rel + .mod-nav-sino { margin-left: 0; }
+.rel-linha { display: flex; gap: 14px; flex-wrap: wrap; }
+.rel-data { width: 170px; margin: 0; }
+.rel-chips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 12px; }
+.rel-chips button { border: 1px solid var(--line); background: #fff; border-radius: 999px; padding: 6px 14px; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; color: #0c303e; }
+.rel-chips button.on { background: #0c303e; color: #fff; border-color: #0c303e; }
