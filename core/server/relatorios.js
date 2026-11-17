@@ -24,11 +24,12 @@ export async function sistemasComRelatorio() {
 }
 
 /** Monta o Excel. chave = 'todos' ou a chave de um sistema. Devolve { xlsx, nome }. */
-export async function gerarExcel({ chave, de, ate, quem }) {
+export async function gerarExcel({ chave, de, ate, quem, permitidos = null }) {
   if (!isDate(de) || !isDate(ate)) throw new ErroRelatorio('Informe as datas de e até');
   if (ate < de) throw new ErroRelatorio('A data final é antes da inicial');
   const todos = chave === 'todos';
-  const mods = (await sistemasComRelatorio()).filter((x) => todos || x.key === chave);
+  // permitidos: lista de chaves que a pessoa pode baixar (Central); null = todos os sistemas (Administração)
+  const mods = (await sistemasComRelatorio()).filter((x) => (todos || x.key === chave) && (!permitidos || permitidos.includes(x.key)));
   if (!mods.length) throw new ErroRelatorio('Sistema sem relatório', 404);
 
   const abas = [];
@@ -61,6 +62,34 @@ export function enviarExcel(res, { xlsx, nome }) {
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   res.setHeader('Content-Disposition', `attachment; filename="${nome}"`);
   res.send(xlsx);
+}
+
+/** Sistemas ativos em que a pessoa é Central e que exportam relatório. */
+async function sistemasDaCentral(userId) {
+  const meus = new Set((await pg.all(`SELECT um.module_key FROM user_modules um JOIN modules m ON m.key = um.module_key
+    WHERE um.user_id = ? AND um.role IN ('central','ambos') AND m.enabled AND m.status = 'ativo'`, userId)).map((x) => x.module_key));
+  return (await sistemasComRelatorio()).filter((m) => meus.has(m.key));
+}
+
+/** Página Relatórios da Central: lista só os sistemas dela e baixa um deles ou todos os dela em um arquivo. */
+export function relatoriosDaCentralRouter() {
+  const r = express.Router();
+  r.get('/', requireAuth, a(async (req, res) => {
+    res.json((await sistemasDaCentral(req.user.id)).map((m) => ({ key: m.key, title: m.title, icon: m.icon, labels: m.labels })));
+  }));
+  r.get('/:arq', requireAuth, a(async (req, res) => {
+    const m = /^([a-z0-9_]+)\.xlsx$/.exec(req.params.arq);
+    if (!m) return res.status(404).json({ error: 'Relatório não encontrado' });
+    const permitidos = (await sistemasDaCentral(req.user.id)).map((x) => x.key);
+    if (m[1] !== 'todos' && !permitidos.includes(m[1])) return res.status(403).json({ error: 'O relatório é para quem é da Central deste sistema.' });
+    try {
+      enviarExcel(res, await gerarExcel({ chave: m[1], de: req.query.de, ate: req.query.ate, quem: req.user.name, permitidos }));
+    } catch (e) {
+      if (e instanceof ErroRelatorio) return res.status(e.status).json({ error: e.message });
+      throw e;
+    }
+  }));
+  return r;
 }
 
 /** Relatório do próprio sistema para quem é da Central dele. Não dá acesso a nenhuma outra função de administração. */

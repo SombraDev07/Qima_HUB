@@ -15,7 +15,7 @@ import {
 } from './lib/seguranca.js';
 import { loadModules, moduleSummary, moduleNotificacoes, registry } from './moduleLoader.js';
 import { adminRouter } from './admin.js';
-import { relatorioDoSistemaRouter } from './relatorios.js';
+import { relatorioDoSistemaRouter, relatoriosDaCentralRouter } from './relatorios.js';
 import { aiIniciar } from './lib/ai.js';
 
 const portArg = process.argv.find((x) => x.startsWith('--port='));
@@ -184,6 +184,7 @@ app.use('/api/admin', requireAuth, requireAdmin, adminRouter());
 // ---------- Sistemas ----------
 // relatório do próprio sistema, para quem é da Central dele (antes das rotas dos sistemas)
 app.use('/api/m', relatorioDoSistemaRouter());
+app.use('/api/relatorios', relatoriosDaCentralRouter());
 await loadModules(app, { migrar: !SERVERLESS });
 await aiIniciar();
 

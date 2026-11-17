@@ -17,18 +17,19 @@ function periodo(tipo) {
 }
 const ATALHOS = [['mes', 'Este mês'], ['mes_passado', 'Mês passado'], ['30', 'Últimos 30 dias'], ['90', 'Últimos 90 dias'], ['ano', 'Este ano']];
 
-export default function Relatorios() {
+// Usado na Administração (todos os sistemas) e na página Relatórios da Central (só os sistemas dela): muda só a rota.
+export default function Relatorios({ rota = '/api/admin/relatorios' }) {
   const [sistemas, setSistemas] = useState(null);
   const [[de, ate], setPer] = useState(() => periodo('mes'));
   const [atalho, setAtalho] = useState('mes');
   const [erro, setErro] = useState('');
-  useEffect(() => { api('/api/admin/relatorios').then(setSistemas).catch((e) => setErro(e.message)); }, []);
+  useEffect(() => { api(rota).then(setSistemas).catch((e) => setErro(e.message)); }, [rota]);
 
   const valido = de && ate && ate >= de;
   const baixar = (key) => {
     if (!valido) return setErro('Confira o período: a data final não pode ser antes da inicial.');
     setErro('');
-    window.location.href = `/api/admin/relatorios/${key}.xlsx?de=${de}&ate=${ate}`;
+    window.location.href = `${rota}/${key}.xlsx?de=${de}&ate=${ate}`;
   };
 
   return (
