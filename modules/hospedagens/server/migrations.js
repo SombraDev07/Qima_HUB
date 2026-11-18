@@ -175,4 +175,15 @@ export default [
       `);
     },
   },
+  {
+    // O banco de pessoas passa a ser o da Contratação (contratacao_banco). O cadastro antigo
+    // fica desativado (não é apagado) e os pessoa_id antigos, que apontavam para ele, são limpos.
+    version: 4,
+    async up(db) {
+      await db.exec(`
+        UPDATE hospedagens_pessoas SET ativo = FALSE;
+        UPDATE hospedagens_hospedes SET pessoa_id = NULL WHERE pessoa_id IS NOT NULL;
+      `);
+    },
+  },
 ];

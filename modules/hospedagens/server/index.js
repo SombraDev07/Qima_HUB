@@ -144,22 +144,29 @@ export default {
       pagamentoStatus: PAG_ST,
     })));
 
+    // Banco de pessoas = o da Contratação (Central RH > Candidatos). Demitidos não aparecem.
+    // O id devolvido é o de contratacao_banco e fica gravado em hospedagens_hospedes.pessoa_id.
     r.get('/pessoas', ler((req) => {
       const q = `%${String(req.query.q || '').trim()}%`;
       return db.all(`
-        SELECT id, nome, email, funcao, cidade FROM hospedagens_pessoas
-        WHERE ativo AND (nome ILIKE ? OR COALESCE(email,'') ILIKE ? OR COALESCE(funcao,'') ILIKE ? OR COALESCE(cidade,'') ILIKE ?)
+        SELECT id, nome, email, funcao, NULLIF(concat_ws('/', cidade, uf), '') AS cidade FROM contratacao_banco
+        WHERE NOT demitido
+          AND (nome ILIKE ? OR COALESCE(email,'') ILIKE ? OR COALESCE(funcao,'') ILIKE ? OR COALESCE(cidade,'') ILIKE ?)
         ORDER BY nome LIMIT 50
       `, q, q, q, q);
     }));
 
+    // Cadastro rápido: a pessoa entra direto no banco da Contratação.
     r.post('/pessoas', h(async (req, t) => {
       const campo = (v, max) => String(v ?? '').trim().slice(0, max) || null;
       const nome = campo(req.body?.nome, 120);
       if (!nome) throw new RuleError('Informe o nome');
-      if (await t.get('SELECT 1 FROM hospedagens_pessoas WHERE lower(nome) = lower(?) AND ativo', nome)) throw new RuleError('Já existe uma pessoa com esse nome no banco.');
-      return t.get('INSERT INTO hospedagens_pessoas (nome, email, funcao, cidade) VALUES (?, ?, ?, ?) RETURNING id, nome, email, funcao, cidade',
-        nome, campo(req.body.email, 160), campo(req.body.funcao, 80), campo(req.body.cidade, 80));
+      const email = campo(req.body.email, 160)?.toLowerCase() || null;
+      if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new RuleError('E-mail inválido.');
+      if (email && await t.get('SELECT 1 FROM contratacao_banco WHERE lower(email) = ?', email)) throw new RuleError('Esse e-mail já está no banco de pessoas.');
+      if (await t.get('SELECT 1 FROM contratacao_banco WHERE lower(nome) = lower(?) AND NOT demitido', nome)) throw new RuleError('Já existe uma pessoa com esse nome no banco.');
+      return t.get(`INSERT INTO contratacao_banco (nome, email, funcao, cidade, data_disponivel) VALUES (?, ?, ?, ?, CURRENT_DATE)
+        RETURNING id, nome, email, funcao, cidade`, nome, email, campo(req.body.funcao, 80), campo(req.body.cidade, 80));
     }));
 
     // ============================================================ SOLICITANTE
@@ -184,7 +191,7 @@ export default {
     async function gravarHospedes(t, pedidoId, hospedes) {
       await t.run('DELETE FROM hospedagens_hospedes WHERE pedido_id = ?', pedidoId);
       await t.run(`INSERT INTO hospedagens_hospedes (pedido_id, pessoa_id, nome, email, tipo) VALUES ${hospedes.map(() => '(?, ?, ?, ?, ?)').join(', ')}`,
-        ...hospedes.flatMap((x) => [pedidoId, Number(x.pessoa_id) || null, String(x.nome).trim(), x.email || null, x.tipo === 'open' ? 'open' : 'colaborador']));
+        ...hospedes.flatMap((x) => [pedidoId, Number(x.pessoa_id) > 0 ? Number(x.pessoa_id) : null, String(x.nome).trim(), x.email || null, x.tipo === 'open' ? 'open' : 'colaborador']));
     }
 
     r.get('/meus', sol, ler(async (req) => pedidosCompletos(db, await db.all('SELECT * FROM hospedagens_pedidos WHERE solicitante_id = ? ORDER BY id DESC', req.user.id))));
