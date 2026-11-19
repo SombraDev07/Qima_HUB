@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { Plus, Send, Pencil, Trash2, LogOut, Check, X, RotateCcw, CheckCheck, Search } from 'lucide-react';
 import { Alert, Badge, Button, Card, Empty, Field, PageHeader, useConfirm, usePrompt } from '@hub';
-import { AJUSTE, Modal, PedidoBadge, SituacaoBadge, fmtDate, fmtShort, money, useAction } from '../shared.jsx';
+import { AJUSTE, Modal, SituacaoBadge, StatusPedidoBadge, fmtDate, fmtShort, money, useAction } from '../shared.jsx';
 import { Historico } from '../Solicitante.jsx';
 
 // ------------------------------------------------------------------ busca de hotel
@@ -130,6 +130,35 @@ function CheckoutDialog({ api, quarto, onClose, onDone }) {
   );
 }
 
+// ------------------------------------------------------------------ confirmar prorrogação (data e hotel podem mudar)
+function ProrrogarDialog({ api, pedido, ajuste, onClose, onDone }) {
+  const atual = ajuste.quarto_hotel_id ? { id: ajuste.quarto_hotel_id, nome: ajuste.quarto_hotel_nome } : null;
+  const [hotel, setHotel] = useState(atual);
+  const [data, setData] = useState(ajuste.data);
+  const [run, busy] = useAction();
+  const trocou = hotel && atual && hotel.id !== atual.id;
+  const ok = async () => {
+    const r = await run(() => api.post(`/central/solicitacoes/${ajuste.id}/confirmar`, { data, hotel_id: hotel?.id || null }), (x) => `Confirmado · ${x.mensagem}`);
+    if (r) onDone();
+  };
+  return (
+    <Modal title={`Prorrogar · ${ajuste.hospede_nome || ajuste.quarto_codigo}`} onClose={onClose}
+      footer={<><Button variant="outline" onClick={onClose}>Voltar</Button><Button onClick={ok} disabled={busy || !data}><Check size={14} /> Confirmar prorrogação</Button></>}>
+      <p className="muted small hs-m0">
+        Quarto {ajuste.quarto_codigo} ({ajuste.quarto_ocupantes || '—'}) · {ajuste.quarto_hotel_nome || 'sem hotel'} · {fmtDate(ajuste.quarto_data_in)} → {fmtDate(ajuste.quarto_data_out)}
+      </p>
+      <Field label="Novo check-out" hint={`Pedido pelo solicitante: ${fmtDate(ajuste.data)}`}>
+        <input type="date" value={data || ''} min={ajuste.quarto_data_in} onChange={(e) => setData(e.target.value)} />
+      </Field>
+      <Field label="Hotel da prorrogação" hint={trocou
+        ? `O trecho em ${atual.nome} termina em ${fmtDate(ajuste.quarto_data_out)} e a prorrogação vira um novo trecho no hotel escolhido.`
+        : 'Mantenha o hotel atual ou escolha outro, se a prorrogação for reservada em outro hotel.'}>
+        <HotelPicker api={api} value={hotel} cidade={pedido.cidade} onChange={setHotel} />
+      </Field>
+    </Modal>
+  );
+}
+
 // ------------------------------------------------------------------ página
 export default function DetalheCentral({ module, api }) {
   const base = `/m/${module.key}/central`;
@@ -138,6 +167,7 @@ export default function DetalheCentral({ module, api }) {
   const [erro, setErro] = useState('');
   const [edit, setEdit] = useState(null);
   const [out, setOut] = useState(null);
+  const [prorr, setProrr] = useState(null);
   const [run, busy] = useAction();
   const perguntarSimNao = useConfirm();
   const perguntar = usePrompt();
@@ -171,9 +201,9 @@ export default function DetalheCentral({ module, api }) {
     if (await run(() => api.post(`/central/pedidos/${p.id}/finalizar`), 'Pedido finalizado')) load();
   };
   const reabrir = async () => { if (await run(() => api.post(`/central/pedidos/${p.id}/reabrir`), 'Pedido reaberto')) load(); };
-  const confirmar = async (s) => { if (await run(() => api.post(`/central/solicitacoes/${s.id}/confirmar`), (x) => `Confirmado · ${x.mensagem}`)) load(); };
+  const confirmar = async (s) => { if (s.tipo === 'prorrogar') return setProrr(s); if (await run(() => api.post(`/central/solicitacoes/${s.id}/confirmar`), (x) => `Confirmado · ${x.mensagem}`)) load(); };
   const recusar = async (s) => {
-    const resposta = await perguntar({ titulo: `Desconsiderar o ajuste de ${s.hospede_nome || 'hóspede'}?`, mensagem: 'O quarto permanece como está. O motivo é enviado ao solicitante.', label: 'Motivo', confirmar: 'Desconsiderar' });
+    const resposta = await perguntar({ titulo: `Desconsiderar o ajuste de ${s.hospede_nome || s.quarto_codigo || 'hóspede'}?`, mensagem: 'O quarto permanece como está. O motivo é enviado ao solicitante.', label: 'Motivo', confirmar: 'Desconsiderar' });
     if (resposta === null) return;
     if (await run(() => api.post(`/central/solicitacoes/${s.id}/recusar`, { resposta }), 'Ajuste desconsiderado. O quarto permanece como está.')) load();
   };
@@ -185,7 +215,8 @@ export default function DetalheCentral({ module, api }) {
         subtitle={`${p.solicitante_nome} · ${p.cidade} - ${p.uf} · ${fmtDate(p.data_inicio)} → ${fmtDate(p.data_fim)} · ${p.projeto || 'sem projeto'}`}
         back={base}
         actions={<div className="tags">
-          <PedidoBadge s={p.status} />
+          <StatusPedidoBadge p={p} />
+          {p.status === 'finalizado' && <Badge tone="muted">Finalizado pela central</Badge>}
           {!encerrado && <Button variant="outline" onClick={finalizar} disabled={busy || !!motivoFin} title={motivoFin}><CheckCheck size={16} /> Finalizar pedido</Button>}
           {!encerrado && <Button variant="brand" onClick={enviarTudo} disabled={busy || !aEnviar.length}><Send size={16} /> Enviar tudo{aEnviar.length ? ` (${aEnviar.length})` : ''}</Button>}
           {p.status === 'finalizado' && <Button variant="outline" onClick={reabrir} disabled={busy}><RotateCcw size={16} /> Reabrir</Button>}
@@ -196,14 +227,17 @@ export default function DetalheCentral({ module, api }) {
         <Card className="hs-aviso">
           <h3>Ajustes pedidos pelo solicitante</h3>
           <table className="table hs-table">
-            <thead><tr><th>Tipo</th><th>Hóspede</th><th>Quarto</th><th>Data pedida</th><th>Observação</th><th /></tr></thead>
+            <thead><tr><th>Tipo</th><th>Hóspede</th><th>Quarto</th><th>Hotel</th><th>Check-in</th><th>Check-out</th><th>Data pedida</th><th>Observação</th><th /></tr></thead>
             <tbody>
               {abertas.map((s) => (
                 <tr key={s.id}>
                   <td><Badge tone="brand">{AJUSTE[s.tipo]}</Badge></td>
-                  <td className="cell-strong">{s.hospede_nome || '—'}</td>
+                  <td className="cell-strong">{s.hospede_nome || (s.quarto_id ? <>Quarto inteiro<div className="muted small">{s.quarto_ocupantes}</div></> : '—')}</td>
                   <td>{s.quarto_codigo || '—'}</td>
-                  <td>{s.data ? fmtDate(s.data) : '—'}</td>
+                  <td>{s.quarto_hotel_nome || '—'}</td>
+                  <td>{s.quarto_data_in ? fmtDate(s.quarto_data_in) : '—'}</td>
+                  <td>{s.quarto_data_out ? fmtDate(s.quarto_data_out) : '—'}</td>
+                  <td className="cell-strong">{s.data ? fmtDate(s.data) : '—'}</td>
                   <td>{s.obs || '—'}</td>
                   <td className="row-actions">
                     <div className="hs-acts">
@@ -278,6 +312,7 @@ export default function DetalheCentral({ module, api }) {
       <p className="muted small">Diária herdada do cadastro do hotel conforme a ocupação (simples, duplo, triplo, quádruplo). Hotel de qualquer cidade pode ser usado.</p>
 
       <Historico itens={p.historico} solicitacoes={p.solicitacoes} />
+      {prorr && <ProrrogarDialog api={api} pedido={p} ajuste={prorr} onClose={() => setProrr(null)} onDone={() => { setProrr(null); load(); }} />}
       {out && <CheckoutDialog api={api} quarto={out} onClose={() => setOut(null)} onDone={() => { setOut(null); load(); }} />}
     </>
   );

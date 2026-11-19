@@ -1,32 +1,144 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link, Route, Routes, useNavigate, useParams } from 'react-router-dom';
+import { Route, Routes, useNavigate, useParams } from 'react-router-dom';
 import { Plus, Pencil, Trash2, CalendarPlus, LogOut, XCircle, MessageSquare, Undo2 } from 'lucide-react';
 import { Alert, Badge, Button, Card, Empty, Field, PageHeader, useConfirm } from '@hub';
 import {
-  AJUSTE, CidadeInput, HospedesPicker, Modal, PedidoBadge, SituacaoBadge, cidadeOficial, addDays, fmtDate, fmtDateTime,
-  norm, todayISO, useAction, FiltroSelect, uniq,
+  AJUSTE, CidadeInput, HospedesPicker, Modal, StatusBadge, StatusPedidoBadge, cidadeOficial, addDays, fmtDateTime, fmtDate,
+  norm, todayISO, useAction, FiltroSelect, uniq, statusPedido, statusQuarto, statusHospede,
 } from './shared.jsx';
 
+// =========================================================================== linhas e ações (usadas na lista e no detalhe)
+/** Hóspedes do pedido, cada um com o quarto (vivo ou o último em que esteve) e o status exibido. */
+function linhasHospedes(p) {
+  return p.hospedes.map((h) => {
+    const q = p.quartos.find((x) => x.id === h.quarto_id) || [...p.quartos].reverse().find((x) => x.ocupantes.some((o) => o.id === h.id));
+    return { ...h, pedido: p, quarto: q, st: statusHospede(h, q, p) };
+  });
+}
+const pedidoAtivo = (p) => !['finalizado', 'cancelado', 'rascunho'].includes(p.status);
+const abertasDe = (p) => p.solicitacoes.filter((s) => s.status === 'aberta');
+/** Ajuste aberto que já cobre este hóspede (pedido só dele ou do quarto inteiro dele). */
+const ajusteDoHospede = (p, h, q) => abertasDe(p).find((s) => s.hospede_id === h.id || (!s.hospede_id && s.quarto_id && q && s.quarto_codigo === q.codigo));
+const ajusteDoQuarto = (p, q) => abertasDe(p).find((s) => !s.hospede_id && s.quarto_id && s.quarto_codigo === q.codigo);
+
+function Acoes({ pode, ajuste, temQuarto, onAjuste, onRetirar, busy }) {
+  if (ajuste) {
+    return (
+      <div className="hs-acts">
+        <Badge tone="brand">{AJUSTE[ajuste.tipo]} enviado</Badge>
+        {onRetirar && <button className="hs-link" onClick={() => onRetirar(ajuste)} disabled={busy}><Undo2 size={13} /> retirar</button>}
+      </div>
+    );
+  }
+  if (!pode) return <span className="muted">—</span>;
+  return (
+    <div className="hs-acts">
+      {temQuarto && <button className="hs-act" onClick={() => onAjuste('prorrogar')}><CalendarPlus size={14} /> Prorrogar</button>}
+      {temQuarto && <button className="hs-act" onClick={() => onAjuste('checkout')}><LogOut size={14} /> Check-out</button>}
+      <button className="hs-act" onClick={() => onAjuste('editar')}><MessageSquare size={14} /> Editar</button>
+      <button className="hs-act hs-act-danger" onClick={() => onAjuste('cancelar')}><XCircle size={14} /> Cancelar</button>
+    </div>
+  );
+}
+
+/** Tabela de hóspedes com os ajustes na própria linha. comPedido = mostra a coluna do pedido (lista geral). */
+function TabelaHospedes({ linhas, comPedido, onAjuste, onRetirar, busy }) {
+  return (
+    <Card className="table-card">
+      <table className="table hs-table">
+        <thead><tr><th>Hóspede</th>{comPedido && <th>Pedido</th>}<th>Quarto</th><th>Hotel</th><th>Check-in</th><th>Check-out</th><th>Situação</th><th>Ajustes</th></tr></thead>
+        <tbody>
+          {linhas.map((h) => {
+            const p = h.pedido;
+            const q = h.quarto;
+            const visivel = q?.enviado;
+            return (
+              <tr key={h.id}>
+                <td className="cell-strong">{h.nome}{h.tipo === 'open' && <div className="muted small">vaga Open</div>}</td>
+                {comPedido && <td>{p.codigo}<div className="muted small">{p.cidade} - {p.uf}</div></td>}
+                <td>{visivel ? `${q.codigo} · ${q.tipo}` : <span className="muted">Aguardando central</span>}</td>
+                <td>{visivel ? <>{q.hotel_nome}<div className="muted small">{q.hotel_endereco}</div></> : '—'}</td>
+                <td>{fmtDate(visivel ? q.data_in : p.data_inicio)}</td>
+                <td>{fmtDate(visivel ? q.data_out : p.data_fim)}</td>
+                <td><StatusBadge st={h.st} /></td>
+                <td>
+                  <Acoes pode={pedidoAtivo(p) && h.status === 'ativo'} ajuste={ajusteDoHospede(p, h, q)} temQuarto={!!h.quarto_id}
+                    onAjuste={(tipo) => onAjuste({ pedido: p, hospede: h, tipo })} onRetirar={onRetirar} busy={busy} />
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </Card>
+  );
+}
+
+/** Tabela de quartos: o ajuste vale para todos os hóspedes do quarto. */
+function TabelaQuartos({ linhas, onAjuste, onRetirar, busy }) {
+  return (
+    <Card className="table-card">
+      <table className="table hs-table">
+        <thead><tr><th>Quarto</th><th>Pedido</th><th>Hóspedes</th><th>Hotel</th><th>Check-in</th><th>Check-out</th><th>Situação</th><th>Ajustes</th></tr></thead>
+        <tbody>
+          {linhas.map(({ q, p, st }) => (
+            <tr key={q.id}>
+              <td className="cell-strong">{q.codigo}<div className="muted small">{q.tipo}</div></td>
+              <td>{p.codigo}<div className="muted small">{p.cidade} - {p.uf}</div></td>
+              <td>{q.ocupantes.map((o) => o.nome).join(', ') || '—'}</td>
+              <td>{q.hotel_nome}<div className="muted small">{q.hotel_endereco}</div></td>
+              <td>{fmtDate(q.data_in)}</td>
+              <td>{fmtDate(q.data_out)}<div className="muted small">{q.dias} diária(s)</div></td>
+              <td><StatusBadge st={st} /></td>
+              <td>
+                <Acoes pode={pedidoAtivo(p) && q.situacao !== 'finalizado' && q.ocupantes.length > 0}
+                  ajuste={q.situacao !== 'finalizado' ? ajusteDoQuarto(p, q) : null} temQuarto
+                  onAjuste={(tipo) => onAjuste({ pedido: p, quarto: q, tipo })} onRetirar={onRetirar} busy={busy} />
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </Card>
+  );
+}
+
 // =========================================================================== lista
+const ABAS = [
+  { key: 'pedidos', label: 'Pedidos' },
+  { key: 'hospedes', label: 'Hóspedes' },
+  { key: 'quartos', label: 'Quartos' },
+];
+
 function MeusPedidos({ module, api }) {
   const [pedidos, setPedidos] = useState(null);
-  const [aba, setAba] = useState('pedidos');
+  const [aba, setAba] = useState(() => { try { return sessionStorage.getItem('hs-sol-aba') || 'pedidos'; } catch { return 'pedidos'; } });
   const [busca, setBusca] = useState('');
   const [status, setStatus] = useState('');
   const [erro, setErro] = useState('');
+  const [dlg, setDlg] = useState(null);
+  const [run, busy] = useAction();
   const navigate = useNavigate();
 
-  useEffect(() => { api.get('/meus').then(setPedidos).catch((e) => setErro(e.message)); }, []);
+  const load = () => api.get('/meus').then(setPedidos).catch((e) => setErro(e.message));
+  useEffect(() => { load(); }, []);
+  useEffect(() => { try { sessionStorage.setItem('hs-sol-aba', aba); } catch {} setStatus(''); }, [aba]);
 
-  const filtrados = (pedidos || []).filter((p) =>
-    (!status || p.status === status) &&
-    (!busca || norm(`${p.codigo} ${p.cidade} ${p.projeto} ${p.hospedes.map((h) => h.nome).join(' ')}`).includes(norm(busca))));
+  // linhas de cada aba, já com o status exibido (st) — o filtro de status usa o mesmo status da tela
+  const linhas = useMemo(() => {
+    const comBusca = (pedidos || []).filter((p) => !busca || norm(`${p.codigo} ${p.cidade} ${p.projeto} ${p.hospedes.map((h) => h.nome).join(' ')}`).includes(norm(busca)));
+    const enviados = comBusca.filter((p) => p.status !== 'rascunho');
+    return {
+      pedidos: comBusca.map((p) => ({ p, st: statusPedido(p) })),
+      hospedes: enviados.flatMap(linhasHospedes),
+      quartos: enviados.flatMap((p) => p.quartos.filter((q) => q.enviado).map((q) => ({ q, p, st: statusQuarto(q) }))),
+    };
+  }, [pedidos, busca]);
+  const daAba = linhas[aba] || linhas.pedidos;
+  const opcoesStatus = uniq(daAba.map((x) => x.st.label));
+  const visiveis = daAba.filter((x) => !status || x.st.label === status);
 
-  const hospedes = useMemo(() => filtrados.filter((p) => p.status !== 'rascunho').flatMap((p) => p.hospedes.map((h) => {
-    const q = p.quartos.find((x) => x.situacao !== 'finalizado' && x.ocupantes.some((o) => o.id === h.id))
-      || [...p.quartos].reverse().find((x) => x.ocupantes.some((o) => o.id === h.id));
-    return { ...h, pedido: p, quarto: q };
-  })), [filtrados]);
+  const retirar = async (s) => { if (await run(() => api.del(`/meus/solicitacoes/${s.id}`), 'Pedido de ajuste retirado')) load(); };
 
   return (
     <>
@@ -37,25 +149,29 @@ function MeusPedidos({ module, api }) {
       />
       <Alert>{erro}</Alert>
       <div className="tabs">
-        <button className={aba === 'pedidos' ? 'active' : ''} onClick={() => setAba('pedidos')}>Pedidos</button>
-        <button className={aba === 'hospedes' ? 'active' : ''} onClick={() => setAba('hospedes')}>Hóspedes e quartos</button>
+        {ABAS.map((a) => <button key={a.key} className={aba === a.key ? 'active' : ''} onClick={() => setAba(a.key)}>{a.label}</button>)}
       </div>
       <div className="hs-filtros">
         <label className="hs-filtro hs-filtro-grow"><span>Buscar</span>
           <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Código, cidade, projeto ou hóspede" />
         </label>
-        <FiltroSelect label="Status" value={status} onChange={setStatus}
-          options={uniq((pedidos || []).map((p) => p.status)).map((s) => ({ value: s, label: { rascunho: 'Rascunho', pendente: 'Solicitado', ajustado: 'Ajustado', em_andamento: 'Em andamento', finalizado: 'Finalizado', cancelado: 'Cancelado' }[s] || s }))} />
+        <FiltroSelect label="Status" value={status} onChange={setStatus} options={opcoesStatus} />
       </div>
 
-      {pedidos === null ? <Empty>Carregando…</Empty> : aba === 'pedidos' ? (
-        !filtrados.length ? <Empty>Nenhum pedido. Clique em “Nova solicitação”.</Empty> : (
+      {pedidos === null ? <Empty>Carregando…</Empty> : aba === 'hospedes' ? (
+        !visiveis.length ? <Empty>Nenhum hóspede.</Empty>
+          : <TabelaHospedes linhas={visiveis} comPedido onAjuste={setDlg} onRetirar={retirar} busy={busy} />
+      ) : aba === 'quartos' ? (
+        !visiveis.length ? <Empty>Nenhum quarto reservado ainda.</Empty>
+          : <TabelaQuartos linhas={visiveis} onAjuste={setDlg} onRetirar={retirar} busy={busy} />
+      ) : (
+        !visiveis.length ? <Empty>Nenhum pedido. Clique em “Nova solicitação”.</Empty> : (
           <Card className="table-card">
             <table className="table hs-table">
               <thead><tr><th>Código</th><th>Cidade</th><th>Check-in</th><th>Check-out</th><th>Projeto</th><th>Hóspedes</th><th>Status</th><th /></tr></thead>
               <tbody>
-                {filtrados.map((p) => {
-                  const aj = p.solicitacoes.filter((s) => s.status === 'aberta').length;
+                {visiveis.map(({ p, st }) => {
+                  const aj = abertasDe(p).length;
                   return (
                     <tr key={p.id} className="hs-click" onClick={() => navigate(p.status === 'rascunho' ? `editar/${p.id}` : `pedido/${p.id}`)}>
                       <td className="cell-strong">{p.codigo}</td>
@@ -64,7 +180,7 @@ function MeusPedidos({ module, api }) {
                       <td>{fmtDate(p.data_fim)}</td>
                       <td>{p.projeto || '—'}</td>
                       <td>{p.hospedes.filter((h) => h.status !== 'cancelado').length}</td>
-                      <td><div className="tags"><PedidoBadge s={p.status} />{aj > 0 && <Badge tone="brand">{aj} ajuste(s) aguardando</Badge>}</div></td>
+                      <td><div className="tags"><StatusBadge st={st} />{aj > 0 && <Badge tone="brand">{aj} ajuste(s) aguardando</Badge>}</div></td>
                       <td className="row-actions"><Button variant="outline" className="btn-sm">{p.status === 'rascunho' ? 'Continuar' : 'Abrir'}</Button></td>
                     </tr>
                   );
@@ -73,29 +189,9 @@ function MeusPedidos({ module, api }) {
             </table>
           </Card>
         )
-      ) : (
-        !hospedes.length ? <Empty>Nenhum hóspede.</Empty> : (
-          <Card className="table-card">
-            <table className="table hs-table">
-              <thead><tr><th>Hóspede</th><th>Pedido</th><th>Quarto</th><th>Hotel</th><th>Check-in</th><th>Check-out</th><th>Situação</th><th /></tr></thead>
-              <tbody>
-                {hospedes.map((h) => (
-                  <tr key={h.id}>
-                    <td className="cell-strong">{h.nome}{h.status !== 'ativo' && <div className="muted small">{h.status === 'checkout' ? 'Fez check-out' : 'Cancelado'}</div>}</td>
-                    <td>{h.pedido.codigo}<div className="muted small">{h.pedido.cidade} - {h.pedido.uf}</div></td>
-                    <td>{h.quarto ? `${h.quarto.codigo} · ${h.quarto.tipo}` : <span className="muted">Aguardando central</span>}</td>
-                    <td>{h.quarto?.enviado ? h.quarto.hotel_nome : '—'}</td>
-                    <td>{fmtDate(h.quarto?.data_in || h.pedido.data_inicio)}</td>
-                    <td>{fmtDate(h.quarto?.data_out || h.pedido.data_fim)}</td>
-                    <td>{h.quarto?.enviado ? <SituacaoBadge s={h.quarto.situacao} /> : <PedidoBadge s={h.pedido.status} />}</td>
-                    <td className="row-actions"><Link className="btn btn-outline btn-sm" to={`pedido/${h.pedido.id}`}>Abrir</Link></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </Card>
-        )
       )}
+
+      {dlg && <AjusteDialog {...dlg} api={api} onClose={() => setDlg(null)} onDone={() => { setDlg(null); load(); }} />}
     </>
   );
 }
@@ -207,26 +303,34 @@ function PedidoForm({ module, api }) {
 }
 
 // =========================================================================== detalhe + ajustes
-function AjusteDialog({ pedido, hospede, tipo, api, onClose, onDone }) {
-  const quarto = pedido.quartos.find((q) => q.id === hospede.quarto_id);
+/** Pedido de ajuste de um hóspede ou do quarto inteiro (quarto = vale para todos os hóspedes dele). */
+function AjusteDialog({ pedido, hospede, quarto: quartoAlvo, tipo, api, onClose, onDone }) {
+  const quarto = quartoAlvo || pedido.quartos.find((q) => q.id === hospede?.quarto_id);
   const [data, setData] = useState(tipo === 'prorrogar' ? addDays(quarto?.data_out || pedido.data_fim, 1) : (quarto?.data_out || pedido.data_fim));
   const [obs, setObs] = useState('');
   const [run, busy] = useAction();
 
-  const textos = {
+  const nomes = quartoAlvo ? quarto.ocupantes.map((o) => o.nome).join(', ') : '';
+  const textos = quartoAlvo ? {
+    cancelar: `Cancelar o quarto ${quarto.codigo}? A central vai cancelar a hospedagem de todos: ${nomes}.`,
+    prorrogar: `Até quando o quarto ${quarto.codigo} (${nomes}) precisa ficar?`,
+    checkout: `Em que data todos do quarto ${quarto.codigo} (${nomes}) saem do hotel?`,
+    editar: `O que precisa mudar no quarto ${quarto.codigo}?`,
+  } : {
     cancelar: `Cancelar a hospedagem de ${hospede.nome}? A central vai retirar a pessoa do quarto.`,
     prorrogar: `Até quando ${hospede.nome} precisa ficar?`,
     checkout: `Em que data ${hospede.nome} sai do hotel?`,
     editar: `O que precisa mudar para ${hospede.nome}? (nome, datas, quarto…)`,
   };
   const enviar = async () => {
-    const r = await run(() => api.post(`/meus/${pedido.id}/solicitacoes`, { hospede_id: hospede.id, tipo, data, obs }),
+    const alvo = quartoAlvo ? { quarto_id: quarto.id } : { hospede_id: hospede.id };
+    const r = await run(() => api.post(`/meus/${pedido.id}/solicitacoes`, { ...alvo, tipo, data, obs }),
       'Pedido de ajuste enviado à central. Nada muda até a central confirmar.');
     if (r) onDone();
   };
 
   return (
-    <Modal title={`${AJUSTE[tipo]} · ${hospede.nome}`} onClose={onClose}
+    <Modal title={`${AJUSTE[tipo]} · ${quartoAlvo ? `quarto ${quarto.codigo}` : hospede.nome}`} onClose={onClose}
       footer={<><Button variant="outline" onClick={onClose}>Voltar</Button><Button onClick={enviar} disabled={busy}>Enviar à central</Button></>}>
       <p className="hs-m0">{textos[tipo]}</p>
       {quarto && <p className="muted small hs-m0">Hoje: {quarto.codigo} · {quarto.hotel_nome || 'hotel a definir'} · {fmtDate(quarto.data_in)} → {fmtDate(quarto.data_out)}</p>}
@@ -258,11 +362,10 @@ function PedidoSolicitante({ module, api }) {
   if (erro) return <><PageHeader title="Pedido" back={base} /><Alert>{erro}</Alert></>;
   if (!p) return <Empty>Carregando…</Empty>;
 
-  const abertas = p.solicitacoes.filter((s) => s.status === 'aberta');
+  const abertas = abertasDe(p);
   const podeEditar = ['pendente', 'ajustado', 'rascunho'].includes(p.status) && !p.quartos.length;
-  const ativo = !['finalizado', 'cancelado', 'rascunho'].includes(p.status);
+  const ativo = pedidoAtivo(p);
   const pedidoCancel = abertas.some((s) => s.tipo === 'cancelar_pedido');
-  const quartosVisiveis = p.quartos.filter((q) => q.enviado);
 
   const cancelarPedido = async () => {
     const semQuarto = !p.quartos.some((q) => q.enviado);
@@ -283,7 +386,7 @@ function PedidoSolicitante({ module, api }) {
         subtitle={`${p.cidade} - ${p.uf} · ${fmtDate(p.data_inicio)} → ${fmtDate(p.data_fim)} · ${p.projeto || ''}`}
         back={base}
         actions={<div className="tags">
-          <PedidoBadge s={p.status} />
+          <StatusPedidoBadge p={p} />
           {podeEditar && <Button variant="outline" onClick={() => navigate(`${base}/editar/${p.id}`)}><Pencil size={15} /> Editar</Button>}
           {ativo && !pedidoCancel && <Button variant="danger" onClick={cancelarPedido} disabled={busy}><XCircle size={15} /> Cancelar pedido</Button>}
         </div>}
@@ -295,7 +398,7 @@ function PedidoSolicitante({ module, api }) {
           <ul className="hs-list">
             {abertas.map((s) => (
               <li key={s.id}>
-                <b>{AJUSTE[s.tipo]}</b>{s.hospede_nome ? ` · ${s.hospede_nome}` : ''}{s.data ? ` · ${fmtDate(s.data)}` : ''}{s.obs ? ` · “${s.obs}”` : ''}
+                <b>{AJUSTE[s.tipo]}</b>{s.hospede_nome ? ` · ${s.hospede_nome}` : s.quarto_codigo ? ` · quarto ${s.quarto_codigo}` : ''}{s.data ? ` · ${fmtDate(s.data)}` : ''}{s.obs ? ` · “${s.obs}”` : ''}
                 <button className="hs-link" onClick={() => retirar(s)} disabled={busy}><Undo2 size={13} /> retirar</button>
               </li>
             ))}
@@ -304,62 +407,11 @@ function PedidoSolicitante({ module, api }) {
       )}
 
       <h3 className="hs-section">Hóspedes</h3>
-      <Card className="table-card">
-        <table className="table hs-table">
-          <thead><tr><th>Hóspede</th><th>Quarto</th><th>Hotel</th><th>Check-in</th><th>Check-out</th><th>Situação</th><th>Ajustes</th></tr></thead>
-          <tbody>
-            {p.hospedes.map((h) => {
-              const q = p.quartos.find((x) => x.id === h.quarto_id) || [...p.quartos].reverse().find((x) => x.ocupantes.some((o) => o.id === h.id));
-              const visivel = q?.enviado;
-              const temAjuste = abertas.some((s) => s.hospede_id === h.id);
-              const pode = ativo && h.status === 'ativo';
-              return (
-                <tr key={h.id}>
-                  <td className="cell-strong">{h.nome}{h.tipo === 'open' && <div className="muted small">vaga Open</div>}</td>
-                  <td>{visivel ? `${q.codigo} · ${q.tipo}` : <span className="muted">Aguardando central</span>}</td>
-                  <td>{visivel ? <>{q.hotel_nome}<div className="muted small">{q.hotel_endereco}</div></> : '—'}</td>
-                  <td>{fmtDate(visivel ? q.data_in : p.data_inicio)}</td>
-                  <td>{fmtDate(visivel ? q.data_out : p.data_fim)}</td>
-                  <td>{h.status === 'cancelado' ? <Badge tone="muted">Cancelado</Badge> : h.status === 'checkout' ? <Badge tone="success">Check-out</Badge> : visivel ? <SituacaoBadge s={q.situacao} /> : <PedidoBadge s={p.status} />}</td>
-                  <td>
-                    {pode && !temAjuste ? (
-                      <div className="hs-acts">
-                        {h.quarto_id && <button className="hs-act" onClick={() => setDlg({ h, tipo: 'prorrogar' })}><CalendarPlus size={14} /> Prorrogar</button>}
-                        {h.quarto_id && <button className="hs-act" onClick={() => setDlg({ h, tipo: 'checkout' })}><LogOut size={14} /> Check-out</button>}
-                        <button className="hs-act" onClick={() => setDlg({ h, tipo: 'editar' })}><MessageSquare size={14} /> Editar</button>
-                        <button className="hs-act hs-act-danger" onClick={() => setDlg({ h, tipo: 'cancelar' })}><XCircle size={14} /> Cancelar</button>
-                      </div>
-                    ) : temAjuste ? <Badge tone="brand">Ajuste enviado</Badge> : <span className="muted">—</span>}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </Card>
-
-      {quartosVisiveis.length > 0 && (
-        <>
-          <h3 className="hs-section">Reservas confirmadas</h3>
-          <div className="hs-cards">
-            {quartosVisiveis.map((q) => (
-              <Card key={q.id}>
-                <div className="hs-card-head"><b>{q.codigo} · {q.tipo}</b><SituacaoBadge s={q.situacao} /></div>
-                <div className="small">{q.hotel_nome}</div>
-                <div className="muted small">{q.hotel_endereco}{q.hotel_telefone ? ` · ${q.hotel_telefone}` : ''}</div>
-                <div className="small hs-mt">{fmtDate(q.data_in)} → {fmtDate(q.data_out)} · {q.dias} diária(s)</div>
-                <div className="small">{q.ocupantes.map((o) => o.nome).join(', ')}</div>
-              </Card>
-            ))}
-          </div>
-        </>
-      )}
+      <TabelaHospedes linhas={linhasHospedes(p)} onAjuste={setDlg} busy={busy} />
 
       {p.obs && <><h3 className="hs-section">Observação</h3><Card><p className="hs-m0">{p.obs}</p></Card></>}
 
-      <Historico itens={p.historico} solicitacoes={p.solicitacoes} />
-
-      {dlg && <AjusteDialog pedido={p} hospede={dlg.h} tipo={dlg.tipo} api={api} onClose={() => setDlg(null)} onDone={() => { setDlg(null); load(); }} />}
+      {dlg && <AjusteDialog {...dlg} api={api} onClose={() => setDlg(null)} onDone={() => { setDlg(null); load(); }} />}
     </>
   );
 }

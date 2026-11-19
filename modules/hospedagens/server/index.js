@@ -109,9 +109,14 @@ export default {
       const quartos = await quartosView(t, await t.all(`SELECT * FROM hospedagens_quartos WHERE pedido_id IN (${ids}) ORDER BY codigo, id`));
       const hospedes = await t.all(`SELECT * FROM hospedagens_hospedes WHERE pedido_id IN (${ids}) ORDER BY id`);
       const solicitacoes = await t.all(`
-        SELECT s.*, hh.nome AS hospede_nome, q.codigo AS quarto_codigo FROM hospedagens_solicitacoes s
+        SELECT s.*, hh.nome AS hospede_nome, q.codigo AS quarto_codigo,
+          q.data_in AS quarto_data_in, q.data_out AS quarto_data_out, q.hotel_id AS quarto_hotel_id, ht.nome AS quarto_hotel_nome,
+          (SELECT string_agg(o.nome, ', ' ORDER BY qh.slot) FROM hospedagens_quarto_hospedes qh JOIN hospedagens_hospedes o ON o.id = qh.hospede_id
+            WHERE qh.quarto_id = s.quarto_id) AS quarto_ocupantes
+        FROM hospedagens_solicitacoes s
         LEFT JOIN hospedagens_hospedes hh ON hh.id = s.hospede_id
         LEFT JOIN hospedagens_quartos q ON q.id = s.quarto_id
+        LEFT JOIN hospedagens_hoteis ht ON ht.id = q.hotel_id
         WHERE s.pedido_id IN (${ids}) ORDER BY (s.status = 'aberta') DESC, s.id DESC`);
       const historico = await t.all(`SELECT * FROM hospedagens_historico WHERE pedido_id IN (${ids}) ORDER BY id DESC`);
       return pedidos.map((p) => {
@@ -254,15 +259,31 @@ export default {
     r.post('/meus/:id/solicitacoes', sol, h(async (req, t) => {
       const p = await meu(t, req);
       if (['rascunho', 'finalizado', 'cancelado'].includes(p.status)) throw new RuleError('Este pedido não aceita ajustes.');
-      const { hospede_id, tipo, data, obs } = req.body || {};
+      const { hospede_id, quarto_id, tipo, data, obs } = req.body || {};
       if (!SOLIC_TIPOS.includes(tipo)) throw new RuleError('Tipo de ajuste inválido.');
-      const hh = await t.get('SELECT id, nome, status FROM hospedagens_hospedes WHERE id = ? AND pedido_id = ?', Number(hospede_id) || 0, p.id);
-      if (!hh) throw new RuleError('Hóspede não encontrado neste pedido.');
-      if (hh.status !== 'ativo') throw new RuleError(`${hh.nome} já está com status ${hh.status}.`);
       if ((tipo === 'prorrogar' || tipo === 'checkout') && !isDate(data)) {
         throw new RuleError(tipo === 'checkout' ? 'Informe a data do check-out.' : 'Informe até quando quer prorrogar.');
       }
       if (tipo === 'editar' && !String(obs || '').trim()) throw new RuleError('Descreva o que precisa ser editado.');
+      const rot = { cancelar: 'Cancelar', prorrogar: 'Prorrogar', checkout: 'Check-out', editar: 'Editar' }[tipo];
+
+      // Ajuste do quarto inteiro (vale para todos os hóspedes dele)
+      if (!hospede_id && quarto_id) {
+        const q = await t.get('SELECT * FROM hospedagens_quartos WHERE id = ? AND pedido_id = ?', Number(quarto_id) || 0, p.id);
+        if (!q || !q.enviado) throw new RuleError('Quarto não encontrado neste pedido.');
+        if (q.situacao === 'finalizado') throw new RuleError(`O quarto ${q.codigo} já está encerrado.`);
+        if (tipo === 'prorrogar' && data <= q.data_in) throw new RuleError('A data precisa ser depois do check-in.');
+        if (tipo === 'checkout' && data < q.data_in) throw new RuleError('A data é antes do check-in.');
+        await t.run("UPDATE hospedagens_solicitacoes SET status = 'retirada' WHERE quarto_id = ? AND hospede_id IS NULL AND tipo = ? AND status = 'aberta'", q.id, tipo);
+        await t.run('INSERT INTO hospedagens_solicitacoes (pedido_id, quarto_id, hospede_id, tipo, data, obs, criado_por) VALUES (?, ?, NULL, ?, ?, ?, ?)',
+          p.id, q.id, tipo, isDate(data) ? data : null, obs || null, req.user.id);
+        await log(t, p.id, req.user, `Pediu ajuste: ${rot} (quarto)`, `${q.codigo}${isDate(data) ? ` · ${brDate(data)}` : ''}${obs ? ` · ${obs}` : ''}`);
+        return;
+      }
+
+      const hh = await t.get('SELECT id, nome, status FROM hospedagens_hospedes WHERE id = ? AND pedido_id = ?', Number(hospede_id) || 0, p.id);
+      if (!hh) throw new RuleError('Hóspede não encontrado neste pedido.');
+      if (hh.status !== 'ativo') throw new RuleError(`${hh.nome} já está com status ${hh.status}.`);
       const q = await quartoDoHospede(t, hh.id);
       if ((tipo === 'prorrogar' || tipo === 'checkout') && !q) throw new RuleError(`${hh.nome} ainda não está em um quarto. Use "Editar" para pedir mudança de datas.`);
       if (q && tipo === 'prorrogar' && data <= q.data_in) throw new RuleError('A data precisa ser depois do check-in.');
@@ -270,7 +291,6 @@ export default {
       await t.run("UPDATE hospedagens_solicitacoes SET status = 'retirada' WHERE hospede_id = ? AND tipo = ? AND status = 'aberta'", hh.id, tipo);
       await t.run('INSERT INTO hospedagens_solicitacoes (pedido_id, quarto_id, hospede_id, tipo, data, obs, criado_por) VALUES (?, ?, ?, ?, ?, ?, ?)',
         p.id, q?.id ?? null, hh.id, tipo, isDate(data) ? data : null, obs || null, req.user.id);
-      const rot = { cancelar: 'Cancelar', prorrogar: 'Prorrogar', checkout: 'Check-out', editar: 'Editar' }[tipo];
       await log(t, p.id, req.user, `Pediu ajuste: ${rot}`, `${hh.nome}${isDate(data) ? ` · ${brDate(data)}` : ''}${obs ? ` · ${obs}` : ''}`);
     }));
 
@@ -401,6 +421,15 @@ export default {
     r.post('/central/solicitacoes/:sid/confirmar', cen, h(async (req, t) => {
       const s = await ajusteAberto(t, req.params.sid);
       const hh = s.hospede_id ? await t.get('SELECT nome FROM hospedagens_hospedes WHERE id = ?', s.hospede_id) : null;
+      // Ajuste do quarto inteiro: o trecho vivo daquele quarto (pode ter sido dividido por um check-out depois do pedido).
+      const doQuarto = !s.hospede_id && s.quarto_id && s.tipo !== 'cancelar_pedido';
+      const quartoAlvo = async () => {
+        if (!doQuarto) return quartoDoHospede(t, s.hospede_id);
+        const q0 = await getQuarto(t, s.quarto_id);
+        if (q0.situacao !== 'finalizado') return q0;
+        return t.get("SELECT * FROM hospedagens_quartos WHERE pedido_id = ? AND codigo = ? AND situacao <> 'finalizado' ORDER BY id DESC LIMIT 1", q0.pedido_id, q0.codigo);
+      };
+      const b = req.body || {};
       let msg = '';
       let titulo = 'Confirmação de Alteração';
       const afetados = [];
@@ -411,24 +440,34 @@ export default {
         await t.run("UPDATE hospedagens_pedidos SET status = 'cancelado', updated_at = now() WHERE id = ?", s.pedido_id);
         await t.run("UPDATE hospedagens_solicitacoes SET status = 'confirmada', resolvido_por = ?, resolvido_at = now() WHERE pedido_id = ? AND status = 'aberta'", req.user.id, s.pedido_id);
         msg = 'Pedido cancelado';
+      } else if (s.tipo === 'cancelar' && doQuarto) {
+        const q = await quartoAlvo();
+        if (!q) throw new RuleError('O quarto já não está ativo.');
+        const occ = await t.all('SELECT hospede_id FROM hospedagens_quarto_hospedes WHERE quarto_id = ?', q.id);
+        for (const o of occ) await cancelarHospede(t, o.hospede_id);
+        msg = `${q.codigo} cancelado (${occ.length} hóspede(s))`;
       } else if (s.tipo === 'cancelar') {
         const out = await cancelarHospede(t, s.hospede_id);
         msg = `${out.nome} cancelado${out.removido ? ' · quarto removido' : ''}`;
       } else if (s.tipo === 'prorrogar' || s.tipo === 'checkout') {
-        const q = await quartoDoHospede(t, s.hospede_id);
-        if (!q) throw new RuleError('Hóspede não está em um quarto ativo.');
+        const q = await quartoAlvo();
+        if (!q) throw new RuleError(doQuarto ? 'O quarto já não está ativo.' : 'Hóspede não está em um quarto ativo.');
+        const quem = doQuarto ? q.codigo : hh.nome;
         if (s.tipo === 'prorrogar') {
-          await prorrogar(t, q.id, s.data);
-          afetados.push(q.id);
-          titulo = 'Confirmação de Prorrogação';
-          msg = `${hh.nome} · prorrogado até ${brDate(s.data)}`;
-        } else {
-          const out = await checkout(t, q.id, [s.hospede_id], s.data);
+          // a central pode ajustar a data e reservar a prorrogação em outro hotel
+          const data = isDate(b.data) ? b.data : s.data;
+          const out = await prorrogar(t, q.id, data, { hotelId: b.hotel_id });
           afetados.push(q.id, ...(out.novoId ? [out.novoId] : []));
-          msg = `${hh.nome} · check-out em ${brDate(s.data)}`;
+          titulo = 'Confirmação de Prorrogação';
+          msg = `${quem} · prorrogado até ${brDate(data)}${out.hotelNome ? ` · no hotel ${out.hotelNome}` : ''}`;
+        } else {
+          const ids = doQuarto ? (await t.all('SELECT hospede_id FROM hospedagens_quarto_hospedes WHERE quarto_id = ?', q.id)).map((o) => o.hospede_id) : [s.hospede_id];
+          const out = await checkout(t, q.id, ids, s.data);
+          afetados.push(q.id, ...(out.novoId ? [out.novoId] : []));
+          msg = `${quem} · check-out em ${brDate(s.data)}`;
         }
       } else {
-        msg = `${hh?.nome || ''} · edição tratada`;
+        msg = `${hh?.nome || (doQuarto ? (await getQuarto(t, s.quarto_id)).codigo : '')} · edição tratada`;
       }
       if (s.tipo !== 'cancelar_pedido') {
         await t.run("UPDATE hospedagens_solicitacoes SET status = 'confirmada', resposta = ?, resolvido_por = ?, resolvido_at = now() WHERE id = ?", req.body?.resposta || null, req.user.id, s.id);

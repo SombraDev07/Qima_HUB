@@ -130,7 +130,6 @@ export default {
       const b = req.body || {};
       const v = await lerPedido(t, b);
       const rascunho = !!b.rascunho;
-      if (!rascunho && !v.observacao) throw new RuleError('Informe a observação.');
       const { id } = await t.get(`INSERT INTO contratacao_pedidos (solicitante_id, solicitante_nome, solicitante_email, projeto, funcao, cidade, uf, distrito,
         data_desejada, semana, qtd, cnh, movel, experiencia, observacao, status, enviado_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ${rascunho ? 'NULL' : 'now()'}) RETURNING id`,
@@ -155,7 +154,6 @@ export default {
       const b = req.body || {};
       const v = await lerPedido(t, b);
       const enviar = !b.rascunho;
-      if (enviar && !v.observacao) throw new RuleError('Informe a observação.');
       await t.run(`UPDATE contratacao_pedidos SET projeto = ?, funcao = ?, cidade = ?, uf = ?, distrito = ?, data_desejada = ?, semana = ?, qtd = ?, cnh = ?,
         movel = ?, experiencia = ?, observacao = ?, status = ?, enviado_at = ${enviar ? 'now()' : 'enviado_at'}, updated_at = now() WHERE id = ?`,
       v.projeto, v.funcao, v.cidade, v.uf, v.distrito, v.data_desejada, v.semana, v.qtd, v.cnh, v.movel, v.experiencia, v.observacao,

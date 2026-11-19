@@ -13,7 +13,17 @@ export const PessoaStatus = ({ s }) => <span className={`ct-pst ct-pst-${s}`}>{P
 export const quando = (p) => `S${p.semana} · ${fmtShort(p.data_desejada)}`;
 export const local = (p) => `${p.distrito || p.uf}${p.cidade ? ` · ${p.cidade} - ${p.uf}` : ''}`;
 export const sim = (v) => (v ? 'Sim' : 'Não');
-export const Mobilidade = ({ v }) => <span className={v ? 'ct-movel' : ''}>{v ? 'MÓVEL' : 'LOCAL'}</span>;
+// ------------------------------------------------------------------ contagem de dias (pelo dia do navegador, não UTC)
+const diaLocal = (d) => Date.UTC(d.getFullYear(), d.getMonth(), d.getDate());
+const diaISO = (s) => { const [y, m, d] = String(s).slice(0, 10).split('-').map(Number); return Date.UTC(y, m - 1, d); };
+/** Dias desde um carimbo de data/hora (ex.: criado em) até hoje. */
+export const diasDesde = (ts) => (ts ? Math.round((diaLocal(new Date()) - diaLocal(new Date(ts))) / 86400000) : null);
+/** Dias de hoje até uma data AAAA-MM-DD (negativo = já passou). */
+export const diasAte = (iso) => (iso ? Math.round((diaISO(iso) - diaLocal(new Date())) / 86400000) : null);
+export const textoDesde = (n) => (n === null ? '' : n === 0 ? 'hoje' : n === 1 ? 'há 1 dia' : `há ${n} dias`);
+export const textoAte = (n) => (n === null ? '' : n === 0 ? 'começa hoje' : n === 1 ? 'falta 1 dia' : n > 0 ? `faltam ${n} dias` : n === -1 ? 'começou há 1 dia' : `começou há ${-n} dias`);
+
+export const Mobilidade =({ v }) => <span className={v ? 'ct-movel' : ''}>{v ? 'MÓVEL' : 'LOCAL'}</span>;
 
 /** Pedido de demissão (solicitante → RH). */
 export function DemissaoDialog({ api, pessoa, onClose, onDone }) {

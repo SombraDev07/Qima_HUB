@@ -210,13 +210,38 @@ export async function cancelarHospede(db, hospedeId) {
   return { nome: h.nome, removido };
 }
 
-export async function prorrogar(db, quartoId, data) {
+/**
+ * Prorroga o quarto até "data". Com hotelId diferente do atual, a prorrogação é reservada em outro hotel:
+ * o trecho atual termina no check-out original e abre-se um novo trecho (mesmo código, mesmos hóspedes) no hotel novo.
+ */
+export async function prorrogar(db, quartoId, data, { hotelId = null } = {}) {
   const q = await getQuarto(db, quartoId);
   if (q.situacao === 'finalizado') throw new RuleError('Este trecho já está finalizado.');
   if (!isDate(data)) throw new RuleError('Informe a nova data de check-out.');
   if (q.data_in && data <= q.data_in) throw new RuleError(`A data (${brDate(data)}) precisa ser depois do check-in (${brDate(q.data_in)}).`);
-  await db.run("UPDATE hospedagens_quartos SET data_out = ?, situacao = 'prorrogado', updated_at = now() WHERE id = ?", data, q.id);
+
+  const novoHotel = Number(hotelId) || null;
+  if (!novoHotel || novoHotel === q.hotel_id) {
+    await db.run("UPDATE hospedagens_quartos SET data_out = ?, situacao = 'prorrogado', updated_at = now() WHERE id = ?", data, q.id);
+    await recalcPedidoDatas(db, q.pedido_id);
+    return { novoId: null, hotelNome: null };
+  }
+
+  const hotel = await db.get('SELECT id, nome FROM hospedagens_hoteis WHERE id = ?', novoHotel);
+  if (!hotel) throw new RuleError('Hotel não encontrado.');
+  if (!q.data_out || data <= q.data_out) throw new RuleError(`Para prorrogar em outro hotel, a nova data precisa ser depois do check-out atual (${brDate(q.data_out)}).`);
+  const occ = await ocupantes(db, q.id);
+  if (!occ.length) throw new RuleError('O quarto não tem hóspedes.');
+
+  await db.run("UPDATE hospedagens_quartos SET situacao = 'finalizado', obs = ?, updated_at = now() WHERE id = ?", `Prorrogação no hotel ${hotel.nome}`, q.id);
+  const r = await db.get(`
+    INSERT INTO hospedagens_quartos (pedido_id, codigo, hotel_id, data_in, data_out, diaria, situacao, enviado, origem_id, obs)
+    VALUES (?, ?, ?, ?, ?, 0, 'prorrogado', TRUE, ?, ?) RETURNING id
+  `, q.pedido_id, q.codigo, hotel.id, q.data_out, data, q.id, 'Prorrogação em outro hotel');
+  await setOcupantes(db, r.id, occ.map((h) => h.id));
+  await recalcDiaria(db, r.id);
   await recalcPedidoDatas(db, q.pedido_id);
+  return { novoId: r.id, hotelNome: hotel.nome };
 }
 
 /** Quarto "vivo" (não finalizado) onde o hóspede está. */

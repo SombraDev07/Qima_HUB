@@ -7,7 +7,7 @@ import {
 } from '@hub';
 
 const Cpf = ({ v }) => (!v ? '—' : <>{fmtCpf(v)}{!cpfValido(v) && <span className="ct-cpf-bad" title="CPF inválido"> !</span>}</>);
-import { Mobilidade, PessoaStatus, PESSOA_ST, Requisitos, SituacaoTag, StatusBadge, local, quando, sim } from './shared.jsx';
+import { Mobilidade, PessoaStatus, PESSOA_ST, Requisitos, SituacaoTag, StatusBadge, local, quando, sim, diasAte, diasDesde, textoAte, textoDesde } from './shared.jsx';
 
 const ABERTOS = (p) => !['finalizado', 'cancelado', 'recusado'].includes(p.status);
 const POR_PAGINA = 25;
@@ -42,7 +42,7 @@ function AnexarDialog({ api, pedido, onClose, onDone }) {
   const toggle = (id) => setSel((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
 
   return (
-    <Modal title={`Anexar da base · ${pedido.codigo}`} onClose={onClose} wide>
+    <Modal title={`Anexar da base · ${pedido.codigo}`} onClose={onClose} wide={1240}>
       <p className="muted small ct-m0">{pedido.funcao} · {local(pedido)} · {pedido.qtd_atendida}/{pedido.qtd} preenchidas. Começa com a função e os requisitos da vaga — mude os filtros para ver mais pessoas.</p>
       <div className="ct-filtros">
         <FiltroSelect label="Função" value={f.funcao} onChange={(v) => setF({ ...f, funcao: v })} options={uniq((base || []).map((b) => b.funcao))} />
@@ -144,15 +144,17 @@ function Vagas({ module, api }) {
       {lista === null ? <Empty>Carregando…</Empty> : !pagina.length ? <Empty>Nenhuma vaga com esses filtros.</Empty> : (
         <Card className="table-card">
           <table className="table ct-table">
-            <thead><tr><th>ID</th><th>Distrito</th><th>Cidade</th><th>Função</th><th>Qtd</th><th>Início</th><th>Solicitante / pedido em</th><th>Status</th><th>Situação</th><th>Ações</th></tr></thead>
+            <thead><tr><th>ID</th><th>Distrito</th><th>Cidade</th><th>Função</th><th>Móvel</th><th>Exp.</th><th>CNH</th><th>Observação</th><th>Qtd</th><th>Início</th><th>Solicitante / pedido em</th><th>Status</th><th>Situação</th><th>Ações</th></tr></thead>
             <tbody>
               {pagina.map((p) => (
                 <tr key={p.id} className={p.status === 'pendente' ? 'ct-row-novo' : ''}>
                   <td className="cell-strong"><button className="ct-link" onClick={() => navigate(`${base}/vaga/${p.id}`)}>{p.codigo}</button></td>
                   <td>{p.distrito}</td><td>{p.cidade ? `${p.cidade} - ${p.uf}` : '—'}</td><td>{p.funcao}</td>
+                  <td>{sim(p.movel)}</td><td>{sim(p.experiencia)}</td><td>{sim(p.cnh)}</td>
+                  <td className="small ct-obs">{p.observacao || <span className="muted">—</span>}</td>
                   <td className={p.qtd_atendida < p.qtd ? 'ct-pend' : 'ct-ok'}>{p.qtd}/{p.qtd_atendida}</td>
-                  <td>{quando(p)}</td>
-                  <td>{p.solicitante_nome}<div className="muted small">criado em {fmtDateTime(p.created_at)}</div></td>
+                  <td className="ct-nowrap">{quando(p)}<div className={`small ${ABERTOS(p) && diasAte(p.data_desejada) < 0 ? 'ct-pend' : 'muted'}`}>{textoAte(diasAte(p.data_desejada))}</div></td>
+                  <td>{p.solicitante_nome}<div className="muted small">criado em {fmtDateTime(p.created_at)}</div><div className="muted small">{textoDesde(diasDesde(p.created_at))}</div></td>
                   <td><StatusBadge p={p} /></td>
                   <td>{ABERTOS(p) ? <SituacaoTag s={p.situacao} /> : <span className="muted">—</span>}</td>
                   <td className="row-actions">

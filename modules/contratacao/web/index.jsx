@@ -8,7 +8,7 @@ import './contratacao.css';
 function Shell({ module, area, children }) {
   const base = `/m/${module.key}/${area}`;
   const links = area === 'solicitante'
-    ? [{ to: base, label: 'Meus pedidos', end: true }, { to: `${base}/anexados`, label: 'Usuários anexados' }, { to: `${base}/novo`, label: 'Nova solicitação' }]
+    ? [{ to: base, label: 'Meus pedidos', end: true }, { to: `${base}/anexados`, label: 'Meus Colaboradores' }, { to: `${base}/novo`, label: 'Nova solicitação' }]
     : [{ to: base, label: 'Vagas', end: true }, { to: `${base}/candidatos`, label: 'Candidatos' }, { to: `${base}/demissoes`, label: 'Demissões' }];
   return (
     <ToastProvider>

@@ -80,6 +80,7 @@ export function useAction() {
 }
 
 // ------------------------------------------------------------------ modal
+/** wide = 900px; wide={1200} (número) = largura máxima em px. */
 export function Modal({ title, onClose, children, footer, wide }) {
   useEffect(() => {
     const k = (e) => e.key === 'Escape' && onClose();
@@ -88,7 +89,7 @@ export function Modal({ title, onClose, children, footer, wide }) {
   }, [onClose]);
   return (
     <div className="modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="modal" style={wide ? { maxWidth: 900 } : undefined}>
+      <div className="modal" style={wide ? { maxWidth: typeof wide === 'number' ? wide : 900 } : undefined}>
         <div className="modal-head">
           <h3>{title}</h3>
           <button type="button" className="icon-btn" onClick={onClose} aria-label="Fechar"><X size={18} /></button>

@@ -35,6 +35,46 @@ export const AJUSTE = {
 export const PedidoBadge = ({ s }) => <Badge tone={PEDIDO_STATUS[s]?.tone}>{PEDIDO_STATUS[s]?.label || s}</Badge>;
 export const SituacaoBadge = ({ s }) => <Badge tone={SITUACAO[s]?.tone}>{SITUACAO[s]?.label || s}</Badge>;
 
+// ------------------------------------------------------------------ status pelas datas (regra única em todas as telas)
+// Depois que a central reserva: antes do check-in = Reservado; do check-in ao check-out = Em andamento; depois = Encerrado.
+export const FASE = {
+  reservado: { label: 'Reservado', tone: 'neutral' },
+  em_andamento: { label: 'Em andamento', tone: 'info' },
+  encerrado: { label: 'Encerrado', tone: 'success' },
+};
+/** Hoje no fuso do navegador (o todayISO do núcleo é UTC e vira o dia às 21h no Brasil). */
+export const hojeLocal = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+export function faseDatas(ini, fim, hoje = hojeLocal()) {
+  if (fim && hoje > fim) return 'encerrado';
+  if (ini && hoje >= ini) return 'em_andamento';
+  return 'reservado';
+}
+/** Status exibido do pedido: antes da reserva segue o fluxo (Solicitado, Ajustado…); depois, as datas. */
+export function statusPedido(p) {
+  if (['em_andamento', 'finalizado'].includes(p.status)) {
+    const f = faseDatas(p.data_inicio, p.data_fim);
+    return { key: f, ...FASE[f] };
+  }
+  return { key: p.status, ...(PEDIDO_STATUS[p.status] || { label: p.status }) };
+}
+/** Status exibido de um quarto já enviado ao solicitante. */
+export function statusQuarto(q) {
+  const f = q.situacao === 'finalizado' ? 'encerrado' : faseDatas(q.data_in, q.data_out);
+  return { key: f, ...FASE[f] };
+}
+/** Status exibido de um hóspede (q = quarto dele, se houver). */
+export function statusHospede(h, q, p) {
+  if (h.status === 'cancelado') return { key: 'cancelado', label: 'Cancelado', tone: 'muted' };
+  if (h.status === 'checkout') return { key: 'encerrado', label: 'Encerrado', tone: 'success' };
+  if (q?.enviado) return statusQuarto(q);
+  return statusPedido(p);
+}
+export const StatusBadge = ({ st }) => <Badge tone={st.tone}>{st.label}</Badge>;
+export const StatusPedidoBadge = ({ p }) => <StatusBadge st={statusPedido(p)} />;
+
 // ------------------------------------------------------------------ cidade (IBGE) — vem do núcleo
 export { CidadeInput, cidadeValida, cidadeOficial, UFS } from '@hub';
 

@@ -12,6 +12,7 @@ export default defineConfig({
   },
   server: {
     port: Number(process.env.PORT) || 5173,
-    proxy: { '/api': 'http://localhost:3001' },
+    // changeOrigin: false mantém o Host do navegador (localhost:5173); a checagem de origem da API compara com ele
+    proxy: { '/api': { target: 'http://localhost:3001', changeOrigin: false } },
   },
 });

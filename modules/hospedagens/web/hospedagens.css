@@ -48,6 +48,8 @@ div.hs-filtros:not(.hs-filtros-card .hs-filtros) { margin-bottom: 16px; }
 .hs-cidade .field-hint { grid-column: 2; }
 .hs-combo { position: relative; }
 .hs-sugest { position: absolute; z-index: 30; top: calc(100% + 4px); left: 0; right: 0; min-width: 260px; max-height: 280px; overflow-y: auto; background: #fff; border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,.12); list-style: none; margin: 0; padding: 4px; }
+/* dentro de uma janela a lista entra no fluxo (a janela cresce) em vez de ficar cortada pela rolagem */
+.modal-body .hs-sugest { position: static; margin-top: 4px; max-height: 220px; box-shadow: none; }
 .hs-sugest li { padding: 8px 10px; border-radius: 6px; cursor: pointer; font-size: 14px; }
 .hs-sugest li:hover { background: #f0f3f6; }
 .hs-hotel-input { position: relative; display: flex; align-items: center; }
@@ -84,7 +86,7 @@ div.hs-filtros:not(.hs-filtros-card .hs-filtros) { margin-bottom: 16px; }
 .hs-act-danger { color: #b42318; }
 .hs-act-danger:hover { border-color: #f3c3be; background: #fdecea; }
 
-.hs-aviso { border-color: #f7c1c7; background: #fffafa; margin-bottom: 16px; }
+.hs-aviso { border-color: #f7c1c7; background: #fffafa; margin-bottom: 16px; overflow-x: auto; }
 .hs-aviso h3 { font-size: 15px; color: #9b1c1c; margin-bottom: 8px; }
 .hs-aviso .table th { background: #9b1c1c; }
 .hs-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }

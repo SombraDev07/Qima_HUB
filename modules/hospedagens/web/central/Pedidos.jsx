@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Building2, Wallet, AlertTriangle } from 'lucide-react';
 import { Alert, Badge, Button, Card, Empty, PageHeader } from '@hub';
-import { FiltroSelect, PedidoBadge, fmtDate, norm, uniq } from '../shared.jsx';
+import { FiltroSelect, StatusPedidoBadge, fmtDate, norm, uniq } from '../shared.jsx';
 
 const ABAS = [
   { key: 'novo', label: 'Pedido novo', match: (p) => ['pendente', 'ajustado'].includes(p.status) },
@@ -103,7 +103,7 @@ export default function PedidosCentral({ module, api }) {
                   <td>{fmtDate(p.data_fim)}</td>
                   <td>{p.projeto || '—'}</td>
                   <td className={p.n_alocados < p.n_hospedes ? 'hs-pend' : ''}>{p.n_hospedes}/{p.n_alocados}</td>
-                  <td><div className="tags"><PedidoBadge s={p.status} />{p.n_ajustes > 0 && <Badge tone="brand">{p.n_ajustes} ajuste</Badge>}</div></td>
+                  <td><div className="tags"><StatusPedidoBadge p={p} />{p.n_ajustes > 0 && <Badge tone="brand">{p.n_ajustes} ajuste</Badge>}</div></td>
                   <td className="row-actions"><Button className="btn-sm">Abrir</Button></td>
                 </tr>
               ))}
