@@ -131,7 +131,7 @@ function MeusPedidos({ module, api }) {
     return {
       pedidos: comBusca.map((p) => ({ p, st: statusPedido(p) })),
       hospedes: enviados.flatMap(linhasHospedes),
-      quartos: enviados.flatMap((p) => p.quartos.filter((q) => q.enviado).map((q) => ({ q, p, st: statusQuarto(q) }))),
+      quartos: enviados.flatMap((p) => p.quartos.filter((q) => q.enviado).map((q) => ({ q, p, st: statusQuarto(q, p) }))),
     };
   }, [pedidos, busca]);
   const daAba = linhas[aba] || linhas.pedidos;
@@ -220,7 +220,7 @@ function PedidoForm({ module, api }) {
         setOrig(p);
         setForm({
           cidade: p.cidade, uf: p.uf, data_inicio: p.data_inicio, data_fim: p.data_fim, projeto: p.projeto || '', garagem: p.garagem || 'sem', obs: p.obs || '',
-          hospedes: p.hospedes.filter((h) => h.status !== 'cancelado').map((h) => ({ pessoa_id: h.pessoa_id, nome: h.nome, email: h.email, tipo: h.tipo })),
+          hospedes: p.hospedes.filter((h) => h.status !== 'cancelado').map((h) => ({ pessoa_id: h.pessoa_id, nome: h.nome, email: h.email, tipo: h.tipo, demitido: h.demitido })),
         });
       }).catch((e) => setErro(e.message));
     }
@@ -391,6 +391,8 @@ function PedidoSolicitante({ module, api }) {
           {ativo && !pedidoCancel && <Button variant="danger" onClick={cancelarPedido} disabled={busy}><XCircle size={15} /> Cancelar pedido</Button>}
         </div>}
       />
+
+      {p.status === 'finalizado' && <Alert kind="success">Pedido finalizado pela central. Não dá mais para prorrogar, fazer check-out ou cancelar.</Alert>}
 
       {abertas.length > 0 && (
         <Card className="hs-aviso">

@@ -95,6 +95,14 @@ div.hs-filtros:not(.hs-filtros-card .hs-filtros) { margin-bottom: 16px; }
 .hs-hist:last-child { border-bottom: none; }
 .hs-hist-warn { color: #9a5b00; }
 
+/* pessoa demitida na Contratação */
+.hs-demitido { border: 2px solid #d92d20 !important; box-shadow: 0 0 0 2px #fde8ea; }
+.hs-chip.hs-demitido { background: #b42318; }
+.hs-tag-dem { margin-left: 6px; font-size: 11px; font-weight: 600; color: #fff; background: #d92d20; border-radius: 4px; padding: 1px 5px; vertical-align: middle; }
+
+/* financeiro: status do pedido */
+.hs-ped-st { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
 /* detalhe central */
 .hs-hosp-strip { background: #eef6f4; border-color: #d3e7e2; }
 .hs-strip-head { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; font-size: 14px; }

@@ -53,7 +53,8 @@ export const CHAMADO_ABERTO = ['pendente', 'aprovado', 'agendado', 'reprovado'];
 export const TIPOS_MANUTENCAO = ['Pneu', 'Elétrica', 'Mecânica', 'Funilaria', 'Revisão', 'Outros'];
 export const HORAS = ['08:00', '09:00', '10:00', '11:00', '13:00', '14:00', '15:00', '16:00'];
 // Fotos do carro (opcionais: o veículo pode ser ativado sem elas)
-export const ANGULOS = ['Frontal', 'Traseira', 'Lateral esquerda', 'Lateral direita', 'Interior', 'Painel', 'Triângulo', 'Medidor de pneu', 'Estepe + Macaco'];
+export const ANGULOS = ['Frontal', 'Traseira', 'Lateral esquerda', 'Lateral direita', 'Interior', 'Painel', 'Triângulo', 'Medidor de pneu', 'Estepe + Macaco',
+  'Documento do veículo', 'CNH', 'CPF/RG'];
 
 // As funções abaixo recebem "db": o banco (pg) ou, dentro de transação, o "t".
 // "tabela" é sempre um nome fixo deste sistema (locais, categorias, modalidades, colaboradores), nunca texto da tela.
@@ -73,9 +74,23 @@ export async function logs(db, user, itens) {
 }
 export const log = (db, x, user, acao, detalhe = null) => logs(db, user, [[x, acao, detalhe]]);
 
-/** Pedido pronto para enviar: data, local e categoria preenchidos. */
+// Fotos: ver ANGULOS acima.
+/** Tipo da modalidade pelo nome cadastrado: 'mensal', 'diaria' ou '' (outra). */
+export const tipoModalidade = (nome) => {
+  const n = String(nome || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  return n.startsWith('mens') ? 'mensal' : n.startsWith('diar') ? 'diaria' : '';
+};
+export const DIAS_MENSAL = 30;
+/** Soma dias a uma data AAAA-MM-DD. */
+export const somaDias = (iso, n) => { const d = new Date(`${iso}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
+/** Devolução prevista: mensal = retirada + 30 dias; diária = a data informada; outra = a informada (se houver). */
+export const prazoPrevisto = (modalidade, retirada, informada) => (
+  tipoModalidade(modalidade) === 'mensal' && isDate(retirada) ? somaDias(retirada, DIAS_MENSAL) : (isDate(informada) ? informada : null));
+
+/** Pedido pronto para enviar: data, local, categoria e modalidade (diária exige a devolução prevista). */
 export function pedidoCompleto(p) {
-  return isDate(p.data_retirada) && !!p.local && !!p.categoria;
+  return isDate(p.data_retirada) && !!p.local && !!p.categoria && !!p.modalidade
+    && (tipoModalidade(p.modalidade) !== 'diaria' || isDate(p.data_prevista));
 }
 
 /** Texto que o solicitante vê sobre o chamado aberto do veículo. */

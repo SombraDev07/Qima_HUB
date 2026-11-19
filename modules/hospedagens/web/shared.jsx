@@ -54,14 +54,17 @@ export function faseDatas(ini, fim, hoje = hojeLocal()) {
 }
 /** Status exibido do pedido: antes da reserva segue o fluxo (Solicitado, Ajustado…); depois, as datas. */
 export function statusPedido(p) {
-  if (['em_andamento', 'finalizado'].includes(p.status)) {
+  // Finalizado pelo financeiro: trava o solicitante e prevalece sobre as datas
+  if (p.status === 'finalizado') return { key: 'finalizado', ...PEDIDO_STATUS.finalizado };
+  if (p.status === 'em_andamento') {
     const f = faseDatas(p.data_inicio, p.data_fim);
     return { key: f, ...FASE[f] };
   }
   return { key: p.status, ...(PEDIDO_STATUS[p.status] || { label: p.status }) };
 }
 /** Status exibido de um quarto já enviado ao solicitante. */
-export function statusQuarto(q) {
+export function statusQuarto(q, p) {
+  if (p?.status === 'finalizado') return statusPedido(p);
   const f = q.situacao === 'finalizado' ? 'encerrado' : faseDatas(q.data_in, q.data_out);
   return { key: f, ...FASE[f] };
 }
@@ -69,6 +72,7 @@ export function statusQuarto(q) {
 export function statusHospede(h, q, p) {
   if (h.status === 'cancelado') return { key: 'cancelado', label: 'Cancelado', tone: 'muted' };
   if (h.status === 'checkout') return { key: 'encerrado', label: 'Encerrado', tone: 'success' };
+  if (p.status === 'finalizado') return statusPedido(p);
   if (q?.enviado) return statusQuarto(q);
   return statusPedido(p);
 }
@@ -96,7 +100,8 @@ export function HospedesPicker({ api, value, onChange }) {
   const has = (nome) => value.some((v) => norm(v.nome) === norm(nome));
   const add = (p) => {
     if (has(p.nome)) return toast(`${p.nome} já está na lista.`, 'erro');
-    onChange([...value, { pessoa_id: p.id, nome: p.nome, email: p.email, tipo: 'colaborador' }]);
+    if (p.demitido) toast(`${p.nome} está como demitido(a) na Contratação.`, 'erro');
+    onChange([...value, { pessoa_id: p.id, nome: p.nome, email: p.email, tipo: 'colaborador', demitido: !!p.demitido }]);
   };
   const addOpen = () => {
     const n = Math.min(Math.max(1, Number(openQtd) || 1), 30);
@@ -118,7 +123,7 @@ export function HospedesPicker({ api, value, onChange }) {
     <div className="hs-picker">
       <div className="hs-chips">
         {value.map((v, i) => (
-          <span key={v.nome + i} className={`hs-chip ${v.tipo === 'open' ? 'hs-chip-open' : ''}`}>
+          <span key={v.nome + i} className={`hs-chip ${v.tipo === 'open' ? 'hs-chip-open' : ''} ${v.demitido ? 'hs-demitido' : ''}`} title={v.demitido ? 'Demitido(a) na Contratação' : undefined}>
             {v.nome}
             <button type="button" onClick={() => onChange(value.filter((_, j) => j !== i))} aria-label={`Remover ${v.nome}`}><X size={13} /></button>
           </span>
@@ -149,8 +154,9 @@ export function HospedesPicker({ api, value, onChange }) {
 
       <div className="hs-pessoas">
         {res.map((p) => (
-          <button type="button" key={p.id} className={`hs-pessoa ${has(p.nome) ? 'on' : ''}`} onClick={() => add(p)} disabled={has(p.nome)}>
-            <b>{p.nome}</b>
+          <button type="button" key={p.id} className={`hs-pessoa ${has(p.nome) ? 'on' : ''} ${p.demitido ? 'hs-demitido' : ''}`} onClick={() => add(p)} disabled={has(p.nome)}
+            title={p.demitido ? 'Demitido(a) na Contratação' : undefined}>
+            <b>{p.nome}{p.demitido && <span className="hs-tag-dem">Demitido</span>}</b>
             <span className="muted small">{[p.funcao, p.cidade, p.email].filter(Boolean).join(' · ') || 'Sem detalhes'}</span>
           </button>
         ))}

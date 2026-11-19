@@ -107,7 +107,9 @@ export default {
       if (!pedidos.length) return [];
       const ids = lista(pedidos.map((p) => p.id));
       const quartos = await quartosView(t, await t.all(`SELECT * FROM hospedagens_quartos WHERE pedido_id IN (${ids}) ORDER BY codigo, id`));
-      const hospedes = await t.all(`SELECT * FROM hospedagens_hospedes WHERE pedido_id IN (${ids}) ORDER BY id`);
+      // demitido = a pessoa está como demitida no banco da Contratação (a tela marca em vermelho)
+      const hospedes = await t.all(`SELECT h.*, COALESCE(b.demitido, FALSE) AS demitido FROM hospedagens_hospedes h
+        LEFT JOIN contratacao_banco b ON b.id = h.pessoa_id WHERE h.pedido_id IN (${ids}) ORDER BY h.id`);
       const solicitacoes = await t.all(`
         SELECT s.*, hh.nome AS hospede_nome, q.codigo AS quarto_codigo,
           q.data_in AS quarto_data_in, q.data_out AS quarto_data_out, q.hotel_id AS quarto_hotel_id, ht.nome AS quarto_hotel_nome,
@@ -149,14 +151,13 @@ export default {
       pagamentoStatus: PAG_ST,
     })));
 
-    // Banco de pessoas = o da Contratação (Central RH > Candidatos). Demitidos não aparecem.
+    // Banco de pessoas = o da Contratação (Central RH > Candidatos). Demitidos aparecem marcados (borda vermelha na tela).
     // O id devolvido é o de contratacao_banco e fica gravado em hospedagens_hospedes.pessoa_id.
     r.get('/pessoas', ler((req) => {
       const q = `%${String(req.query.q || '').trim()}%`;
       return db.all(`
-        SELECT id, nome, email, funcao, NULLIF(concat_ws('/', cidade, uf), '') AS cidade FROM contratacao_banco
-        WHERE NOT demitido
-          AND (nome ILIKE ? OR COALESCE(email,'') ILIKE ? OR COALESCE(funcao,'') ILIKE ? OR COALESCE(cidade,'') ILIKE ?)
+        SELECT id, nome, email, funcao, NULLIF(concat_ws('/', cidade, uf), '') AS cidade, demitido FROM contratacao_banco
+        WHERE (nome ILIKE ? OR COALESCE(email,'') ILIKE ? OR COALESCE(funcao,'') ILIKE ? OR COALESCE(cidade,'') ILIKE ?)
         ORDER BY nome LIMIT 50
       `, q, q, q, q);
     }));
@@ -171,7 +172,7 @@ export default {
       if (email && await t.get('SELECT 1 FROM contratacao_banco WHERE lower(email) = ?', email)) throw new RuleError('Esse e-mail já está no banco de pessoas.');
       if (await t.get('SELECT 1 FROM contratacao_banco WHERE lower(nome) = lower(?) AND NOT demitido', nome)) throw new RuleError('Já existe uma pessoa com esse nome no banco.');
       return t.get(`INSERT INTO contratacao_banco (nome, email, funcao, cidade, data_disponivel) VALUES (?, ?, ?, ?, CURRENT_DATE)
-        RETURNING id, nome, email, funcao, cidade`, nome, email, campo(req.body.funcao, 80), campo(req.body.cidade, 80));
+        RETURNING id, nome, email, funcao, cidade, demitido`, nome, email, campo(req.body.funcao, 80), campo(req.body.cidade, 80));
     }));
 
     // ============================================================ SOLICITANTE

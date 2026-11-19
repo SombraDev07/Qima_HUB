@@ -6,6 +6,30 @@ import { FiltroSelect, SITUACAO, SituacaoBadge, exportCsv, fmtDate, fmtShort, mo
 
 const EXTRATO_TONE = { 'Em Aberto': 'muted', Pendente: 'warning', 'Recebido - Parcial': 'info', Finalizado: 'success' };
 const PAG_TONE = { Pendente: 'warning', 'Em andamento': 'info', Pago: 'success' };
+// Status do pedido controlado pelo financeiro: Finalizado trava o solicitante (sem prorrogar, check-out etc.)
+const PED_ST = { em_andamento: { label: 'Em andamento', tone: 'info' }, finalizado: { label: 'Finalizado', tone: 'success' } };
+const PedStatus = ({ s }) => (PED_ST[s] ? <Badge tone={PED_ST[s].tone}>{PED_ST[s].label}</Badge> : null);
+
+/** Finalizar / voltar para Em andamento o pedido inteiro (todos os quartos dele). */
+function StatusPedido({ api, q, onChange }) {
+  const [run, busy] = useAction();
+  const confirmar = useConfirm();
+  if (!PED_ST[q.pedido_status]) return <span className="muted small">{q.pedido_status}</span>;
+  const fin = q.pedido_status === 'finalizado';
+  const trocar = async () => {
+    const ok = await confirmar(fin
+      ? { titulo: `Voltar ${q.pedido_codigo} para Em andamento?`, mensagem: 'O solicitante volta a poder pedir prorrogação, check-out e cancelamento.', confirmar: 'Voltar para Em andamento' }
+      : { titulo: `Finalizar o pedido ${q.pedido_codigo}?`, mensagem: 'O pedido inteiro fica Finalizado e o solicitante não consegue mais prorrogar, fazer check-out ou cancelar. Dá para voltar depois.', confirmar: 'Finalizar pedido' });
+    if (!ok) return;
+    if (await run(() => api.post(`/central/pedidos/${q.pedido_id}/${fin ? 'reabrir' : 'finalizar'}`), fin ? 'Pedido de volta para Em andamento' : 'Pedido finalizado')) onChange();
+  };
+  return (
+    <div className="hs-ped-st">
+      <PedStatus s={q.pedido_status} />
+      <Button className="btn-sm" variant={fin ? 'outline' : 'brand'} onClick={trocar} disabled={busy}>{fin ? 'Voltar para Em andamento' : 'Finalizar pedido'}</Button>
+    </div>
+  );
+}
 const POR_PAGINA = 100;
 
 function Anexos({ module, api, quartoId }) {
@@ -59,7 +83,7 @@ function Anexos({ module, api, quartoId }) {
   );
 }
 
-function Painel({ module, api, q, opcoes, onClose, onSaved }) {
+function Painel({ module, api, q, opcoes, onClose, onSaved, onStatus }) {
   const campos = ['fin_extra', 'fin_extra_obs', 'fin_extrato_id', 'fin_extrato_status', 'fin_extrato_ini', 'fin_extrato_fim', 'fin_dt_solicitacao',
     'fin_po', 'fin_dt_abertura', 'fin_dt_nf', 'fin_nf', 'fin_vencimento', 'fin_status_pg', 'fin_obs'];
   const [f, setF] = useState(() => Object.fromEntries(campos.map((c) => [c, q[c] ?? ''])));
@@ -92,6 +116,7 @@ function Painel({ module, api, q, opcoes, onClose, onSaved }) {
               <dt>Cidade</dt><dd>{q.cidade} - {q.uf}</dd>
               <dt>Solicitante</dt><dd>{q.solicitante_nome}</dd>
               <dt>Projeto</dt><dd>{q.projeto || '—'}</dd>
+              <dt>Status do pedido</dt><dd><StatusPedido api={api} q={q} onChange={onStatus} /></dd>
             </dl>
             <h4>Hospedagem</h4>
             <dl>
@@ -160,7 +185,7 @@ export default function Financeiro({ module, api }) {
   const [erro, setErro] = useState('');
   const [sel, setSel] = useState(null);
   const [pag, setPag] = useState(1);
-  const [f, setF] = useState({ de: '', ate: '', hotel: '', hospede: '', cidade: '', situacao: '', extrato: '', pagamento: '' });
+  const [f, setF] = useState({ de: '', ate: '', hotel: '', hospede: '', cidade: '', situacao: '', extrato: '', pagamento: '', pedido: '' });
 
   const load = () => api.get('/central/financeiro').then(setRows).catch((e) => setErro(e.message));
   useEffect(() => { load(); api.get('/opcoes').then(setOpcoes); }, []);
@@ -175,7 +200,7 @@ export default function Financeiro({ module, api }) {
     (!f.de || (r.data_in || '') >= f.de) && (!f.ate || (r.data_in || '') <= f.ate) &&
     (!f.hotel || r.hotel_nome === f.hotel) && (!f.cidade || `${r.cidade} - ${r.uf}` === f.cidade) &&
     (!f.situacao || r.situacao === f.situacao) && (!f.extrato || r.fin_extrato_status === f.extrato) &&
-    (!f.pagamento || r.fin_status_pg === f.pagamento) &&
+    (!f.pagamento || r.fin_status_pg === f.pagamento) && (!f.pedido || r.pedido_status === f.pedido) &&
     (!f.hospede || norm(r.ocupantes.map((o) => o.nome).join(' ')).includes(norm(f.hospede))));
   const paginas = Math.max(1, Math.ceil(filtrados.length / POR_PAGINA));
   const vis = filtrados.slice((pag - 1) * POR_PAGINA, pag * POR_PAGINA);
@@ -183,7 +208,7 @@ export default function Financeiro({ module, api }) {
   const set = (k) => (v) => { setF({ ...f, [k]: v }); setPag(1); };
 
   const exportar = () => exportCsv(`financeiro-hospedagens-${new Date().toISOString().slice(0, 10)}.csv`, [
-    { label: 'Pedido', get: (r) => r.pedido_codigo }, { label: 'Quarto', get: (r) => r.codigo }, { label: 'Cidade', get: (r) => `${r.cidade} - ${r.uf}` },
+    { label: 'Pedido', get: (r) => r.pedido_codigo }, { label: 'Status do pedido', get: (r) => PED_ST[r.pedido_status]?.label || r.pedido_status }, { label: 'Quarto', get: (r) => r.codigo }, { label: 'Cidade', get: (r) => `${r.cidade} - ${r.uf}` },
     { label: 'Projeto', get: (r) => r.projeto }, { label: 'Solicitante', get: (r) => r.solicitante_nome },
     { label: 'Check-in', get: (r) => fmtDate(r.data_in) }, { label: 'Check-out', get: (r) => fmtDate(r.data_out) },
     { label: 'Hóspedes', get: (r) => r.ocupantes.map((o) => o.nome).join(', ') }, { label: 'Hotel', get: (r) => r.hotel_nome },
@@ -211,6 +236,7 @@ export default function Financeiro({ module, api }) {
           <FiltroSelect label="Situação" value={f.situacao} onChange={set('situacao')} options={Object.entries(SITUACAO).map(([value, v]) => ({ value, label: v.label }))} />
           <FiltroSelect label="Extrato" value={f.extrato} onChange={set('extrato')} options={opcoes.extratoStatus} />
           <FiltroSelect label="Pagamento" value={f.pagamento} onChange={set('pagamento')} options={opcoes.pagamentoStatus} />
+          <FiltroSelect label="Status do pedido" value={f.pedido} onChange={set('pedido')} options={Object.entries(PED_ST).map(([value, v]) => ({ value, label: v.label }))} />
         </div>
       </Card>
 
@@ -225,7 +251,7 @@ export default function Financeiro({ module, api }) {
             <tbody>
               {vis.map((r) => (
                 <tr key={r.id} className={`hs-click ${sel?.id === r.id ? 'hs-row-sel' : ''}`} onClick={() => setSel(r)}>
-                  <td className="cell-strong">{r.pedido_codigo}</td>
+                  <td className="cell-strong">{r.pedido_codigo}<div><PedStatus s={r.pedido_status} /></div></td>
                   <td>{r.cidade} - {r.uf}</td>
                   <td>{fmtShort(r.data_in)}</td>
                   <td>{fmtShort(r.data_out)}</td>
@@ -261,7 +287,8 @@ export default function Financeiro({ module, api }) {
         </Card>
       )}
       {sel && <Painel module={module} api={api} q={sel} opcoes={opcoes} onClose={() => setSel(null)}
-        onSaved={() => { setSel(null); load(); }} />}
+        onSaved={() => { setSel(null); load(); }}
+        onStatus={async () => { const nov = await api.get('/central/financeiro'); setRows(nov); setSel(nov.find((x) => x.id === sel.id) || null); }} />}
     </>
   );
 }

@@ -156,4 +156,19 @@ export default [
       `);
     },
   },
+  {
+    // Modalidade e devolução prevista já no pedido; prazo (data limite) do veículo para o aviso de vencimento.
+    // Mensal: limite de 30 dias a partir da retirada. Só acrescenta colunas (nada é apagado).
+    version: 3,
+    async up(db) {
+      await db.exec(`
+        ALTER TABLE frotas_pedidos ADD COLUMN IF NOT EXISTS modalidade TEXT;
+        ALTER TABLE frotas_pedidos ADD COLUMN IF NOT EXISTS data_prevista DATE;
+        ALTER TABLE frotas_veiculos ADD COLUMN IF NOT EXISTS data_limite DATE;
+        UPDATE frotas_veiculos SET data_limite = data_retirada + 30
+          WHERE data_limite IS NULL AND data_retirada IS NOT NULL AND status IN ('reservado','em_uso') AND lower(modalidade) LIKE 'mens%';
+        CREATE INDEX IF NOT EXISTS frotas_veiculos_limite ON frotas_veiculos (data_limite) WHERE status = 'em_uso';
+      `);
+    },
+  },
 ];

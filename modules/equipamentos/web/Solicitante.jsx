@@ -181,7 +181,7 @@ function Responsaveis({ api }) {
         )}
       </Card>
       {usuario && (
-        <UsuarioModal titulo={usuario.titulo} ok="Salvar" onClose={() => setUsuario(null)}
+        <UsuarioModal projetos={cfg?.projetos} titulo={usuario.titulo} ok="Salvar" onClose={() => setUsuario(null)}
           onSalvar={async (f) => { const r = await api.post('/responsaveis/usuario', { ...f, ids: usuario.ids }); limpar(); load(); return r; }} />
       )}
     </>

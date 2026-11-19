@@ -7,7 +7,7 @@ import crypto from 'node:crypto';
 import migrations from './migrations.js';
 import relatorio from './relatorio.js';
 import {
-  RuleError, isDate, hoje, agora, brDate, txt, esc, codigo, normPlaca, inteiro, dinheiro, lista, nomes, ids, log, logs, pedidoCompleto,
+  RuleError, isDate, hoje, agora, brDate, txt, esc, codigo, normPlaca, inteiro, dinheiro, lista, nomes, ids, log, logs, pedidoCompleto, tipoModalidade, prazoPrevisto, somaDias,
   situacaoChamado, PEDIDO_STATUS, VEICULO_STATUS, CHAMADO_TIPO, CHAMADO_STATUS, CHAMADO_ABERTO, TIPOS_MANUTENCAO, HORAS, ANGULOS,
 } from './regras.js';
 
@@ -45,12 +45,14 @@ export default {
         (SELECT COUNT(*) FROM frotas_chamados WHERE status = 'pendente') AS chamados,
         (SELECT COUNT(*) FROM frotas_pedidos WHERE status = 'aprovado') AS reservar,
         (SELECT COUNT(*) FROM frotas_veiculos WHERE status = 'reservado') AS ativar,
-        (SELECT COUNT(*) FROM frotas_chamados WHERE status = 'aprovado' AND tipo <> 'substituicao') AS agendar`);
+        (SELECT COUNT(*) FROM frotas_chamados WHERE status = 'aprovado' AND tipo <> 'substituicao') AS agendar,
+        (SELECT COUNT(*) FROM frotas_veiculos WHERE status = 'em_uso' AND data_limite IS NOT NULL AND data_limite <= CURRENT_DATE + 3) AS vencendo`);
       out.push({ central: true, qtd: r.pedidos, texto: 'pedido(s) de veículo para aprovar' });
       out.push({ central: true, qtd: r.chamados, texto: 'chamado(s) de frota para aprovar' });
       out.push({ link: 'central/reservas', qtd: r.reservar, texto: 'pedido(s) aprovado(s) aguardando reserva' });
       out.push({ link: 'central/ativar', qtd: r.ativar, texto: 'veículo(s) reservado(s) para ativar' });
       out.push({ link: 'central/chamados', qtd: r.agendar, texto: 'chamado(s) aguardando agendamento' });
+      out.push({ link: 'central/controle', qtd: r.vencendo, texto: 'veículo(s) com o prazo acabando ou vencido' });
     }
     if (isSolicitante) {
       const r = await db.get(`SELECT
@@ -213,9 +215,9 @@ export default {
     async function novaLinha(t, v, mudancas) {
       const n = { ...v, ...mudancas };
       const x = await t.get(`INSERT INTO frotas_veiculos (pedido_id, origem_id, responsavel_id, responsavel_nome, codigo_reserva, local, categoria, modalidade,
-        valor_contrato, motorista, placa, modelo, cartao, data_retirada, km_retirada, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'em_uso') RETURNING id`,
+        valor_contrato, motorista, placa, modelo, cartao, data_retirada, km_retirada, data_limite, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'em_uso') RETURNING id`,
       v.pedido_id, v.id, v.responsavel_id, v.responsavel_nome, v.codigo_reserva, v.local, v.categoria, v.modalidade, v.valor_contrato,
-      n.motorista, n.placa, n.modelo, n.cartao, n.data_retirada, n.km_retirada);
+      n.motorista, n.placa, n.modelo, n.cartao, n.data_retirada, n.km_retirada, v.data_limite ?? null);
       return x.id;
     }
     async function trocar(t, v, b, user) {
@@ -295,13 +297,32 @@ export default {
       }
       if ('motivo' in b) out.motivo = txt(b.motivo, 500);
       if ('motorista' in b) out.motorista = txt(b.motorista, 120);
+      if ('modalidade' in b) {
+        if (b.modalidade && !(await nomes(t, 'modalidades')).includes(b.modalidade)) throw new RuleError('Modalidade inválida.');
+        out.modalidade = b.modalidade || null;
+      }
+      if ('data_prevista' in b) {
+        if (b.data_prevista && !isDate(b.data_prevista)) throw new RuleError('Data de devolução inválida.');
+        out.data_prevista = b.data_prevista || null;
+      }
       if (exigir) {
         if (!out.data_retirada) throw new RuleError('Informe a data de retirada.');
         if (out.data_retirada < hoje()) throw new RuleError('A data de retirada já passou.');
         if (!out.local) throw new RuleError('Escolha o local de retirada.');
         if (!out.categoria) throw new RuleError('Escolha a categoria do veículo.');
+        if (!out.modalidade) throw new RuleError('Escolha a modalidade (diária ou mensal).');
       }
       return out; // as chaves são sempre nomes de coluna fixos deste arquivo
+    }
+    /** Acerta a devolução prevista do pedido (mensal = retirada + 30 dias) depois de mudar modalidade/datas. */
+    function fecharPrazo(out, atual = {}) {
+      if (!['modalidade', 'data_retirada', 'data_prevista'].some((k) => k in out)) return out;
+      const m = { ...atual, ...out };
+      out.data_prevista = prazoPrevisto(m.modalidade, m.data_retirada, m.data_prevista);
+      if (tipoModalidade(m.modalidade) === 'diaria' && out.data_prevista && m.data_retirada && out.data_prevista < m.data_retirada) {
+        throw new RuleError('A devolução não pode ser antes da retirada.');
+      }
+      return out;
     }
 
     async function avisarNovos(t, user, pedidos) {
@@ -315,7 +336,7 @@ export default {
     /** Envia um ou vários pedidos à central: confere todos, grava de uma vez e devolve os pedidos atualizados. */
     async function enviarPedidos(t, pedidos, user) {
       for (const p of pedidos) {
-        if (!pedidoCompleto(p)) throw new RuleError(`${p.codigo}: preencha data, local e categoria antes de enviar.`);
+        if (!pedidoCompleto(p)) throw new RuleError(`${p.codigo}: preencha data, local, categoria e modalidade (diária: a devolução) antes de enviar.`);
         if (p.data_retirada < hoje()) throw new RuleError(`${p.codigo}: a data de retirada já passou.`);
       }
       const enviados = await t.all(`UPDATE frotas_pedidos SET status = 'solicitado', enviado_at = now(), resposta = NULL, updated_at = now()
@@ -329,12 +350,15 @@ export default {
       const qtd = Math.round(Number(b.qtd || 1));
       if (!(qtd >= 1 && qtd <= 30)) throw new RuleError('Quantidade inválida: digite um número de 1 a 30.');
       const enviar = !!b.enviar;
-      const v = await lerCampos(t, { data_retirada: b.data_retirada, local: b.local, categoria: b.categoria, motivo: b.motivo, motorista: b.motorista }, { exigir: true });
+      const v = fecharPrazo(await lerCampos(t, { data_retirada: b.data_retirada, local: b.local, categoria: b.categoria, motivo: b.motivo, motorista: b.motorista,
+        modalidade: b.modalidade, data_prevista: b.data_prevista }, { exigir: true }));
+      if (tipoModalidade(v.modalidade) === 'diaria' && !v.data_prevista) throw new RuleError('Diária: informe a data de devolução.');
       const lote = `L${Date.now().toString(36)}${crypto.randomBytes(2).toString('hex')}`;
       // o lote inteiro num INSERT só; o motorista informado vale para o primeiro veículo
-      const linhas = Array.from({ length: qtd }, (_, i) => [lote, req.user.id, req.user.name, req.user.email, v.data_retirada, v.local, v.categoria, v.motivo, i === 0 ? v.motorista : null]);
-      await t.run(`INSERT INTO frotas_pedidos (lote, solicitante_id, solicitante_nome, solicitante_email, data_retirada, local, categoria, motivo, motorista)
-        VALUES ${linhas.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ')}`, ...linhas.flat());
+      const linhas = Array.from({ length: qtd }, (_, i) => [lote, req.user.id, req.user.name, req.user.email, v.data_retirada, v.local, v.categoria, v.motivo, i === 0 ? v.motorista : null,
+        v.modalidade, v.data_prevista]);
+      await t.run(`INSERT INTO frotas_pedidos (lote, solicitante_id, solicitante_nome, solicitante_email, data_retirada, local, categoria, motivo, motorista, modalidade, data_prevista)
+        VALUES ${linhas.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ')}`, ...linhas.flat());
       const criados = await t.all("UPDATE frotas_pedidos SET codigo = 'FR-' || lpad(id::text, 5, '0') WHERE lote = ? RETURNING *", lote);
       await logs(t, req.user, criados.map((p) => [{ pedido: p.id }, 'Pedido criado', `Lote de ${qtd}`]));
       if (enviar) await avisarNovos(t, req.user, await enviarPedidos(t, criados, req.user));
@@ -350,7 +374,7 @@ export default {
     r.put('/meus/pedidos/:id', sol, h(async (req, t) => {
       const p = await meuPedido(t, req);
       if (!['rascunho', 'reprovado'].includes(p.status)) throw new RuleError('Este pedido já foi enviado e não pode mais ser alterado.');
-      const v = await lerCampos(t, req.body || {}, { exigir: false });
+      const v = fecharPrazo(await lerCampos(t, req.body || {}, { exigir: false }), p);
       const sets = Object.keys(v);
       if (!sets.length) return pedidoView(p);
       return pedidoView(await t.get(`UPDATE frotas_pedidos SET ${sets.map((k) => `${k} = ?`).join(', ')}, status = 'rascunho', updated_at = now() WHERE id = ? RETURNING *`, ...sets.map((k) => v[k]), p.id));
@@ -556,7 +580,7 @@ export default {
     }));
 
     // ============================================================ CENTRAL — reservas (pedidos aprovados)
-    r.get('/central/reservas', cen, ler(async () => (await db.all(`SELECT p.*, v.id AS veiculo_id, v.codigo_reserva, v.modalidade, v.valor_contrato
+    r.get('/central/reservas', cen, ler(async () => (await db.all(`SELECT p.*, v.id AS veiculo_id, v.codigo_reserva, COALESCE(v.modalidade, p.modalidade) AS modalidade, v.valor_contrato, v.data_limite
       FROM frotas_pedidos p LEFT JOIN frotas_veiculos v ON v.pedido_id = p.id AND v.origem_id IS NULL
       WHERE p.status IN ('aprovado','reservado') ORDER BY p.status, p.data_retirada, p.id`)).map(pedidoView)));
 
@@ -566,24 +590,28 @@ export default {
       const b = req.body || {};
       const cod = txt(b.codigo_reserva, 60);
       if (!cod) throw new RuleError('Informe o código da reserva.');
+      b.modalidade = b.modalidade || p.modalidade;
       if (!(await nomes(t, 'modalidades')).includes(b.modalidade)) throw new RuleError('Escolha a modalidade da locação.');
       const valor = dinheiro(b.valor_contrato);
       if (valor === null) throw new RuleError('Informe o valor do contrato.');
       const campos = await lerCampos(t, { data_retirada: b.data_retirada ?? p.data_retirada, local: b.local ?? p.local, categoria: b.categoria ?? p.categoria, motorista: b.motorista ?? p.motorista, motivo: b.motivo ?? p.motivo }, { exigir: false });
       if (!campos.data_retirada || !campos.local || !campos.categoria) throw new RuleError('Data, local e categoria são obrigatórios.');
+      // prazo do veículo: mensal = retirada + 30 dias; diária = devolução pedida (ou a informada pela central)
+      const limite = prazoPrevisto(b.modalidade, campos.data_retirada, isDate(b.data_limite) ? b.data_limite : p.data_prevista);
+      if (tipoModalidade(b.modalidade) === 'diaria' && !limite) throw new RuleError('Diária: informe a data de devolução.');
       if (await t.get('SELECT 1 FROM frotas_veiculos WHERE codigo_reserva = ? AND pedido_id <> ? LIMIT 1', cod, p.id)) throw new RuleError(`O código de reserva ${cod} já está em outro pedido.`);
-      await t.run("UPDATE frotas_pedidos SET data_retirada = ?, local = ?, categoria = ?, motorista = ?, motivo = ?, status = 'reservado', updated_at = now() WHERE id = ?",
-        campos.data_retirada, campos.local, campos.categoria, campos.motorista, campos.motivo, p.id);
+      await t.run("UPDATE frotas_pedidos SET data_retirada = ?, local = ?, categoria = ?, motorista = ?, motivo = ?, modalidade = ?, data_prevista = ?, status = 'reservado', updated_at = now() WHERE id = ?",
+        campos.data_retirada, campos.local, campos.categoria, campos.motorista, campos.motivo, b.modalidade, limite, p.id);
       const v = await t.get('SELECT id, status FROM frotas_veiculos WHERE pedido_id = ? AND origem_id IS NULL', p.id);
       if (v) {
         if (v.status !== 'reservado') throw new RuleError('O veículo deste pedido já foi ativado. Altere pelo Controle mestre.');
-        await t.run('UPDATE frotas_veiculos SET codigo_reserva = ?, modalidade = ?, valor_contrato = ?, local = ?, categoria = ?, motorista = ?, data_retirada = ?, updated_at = now() WHERE id = ?',
-          cod, b.modalidade, valor, campos.local, campos.categoria, campos.motorista, campos.data_retirada, v.id);
+        await t.run('UPDATE frotas_veiculos SET codigo_reserva = ?, modalidade = ?, valor_contrato = ?, local = ?, categoria = ?, motorista = ?, data_retirada = ?, data_limite = ?, updated_at = now() WHERE id = ?',
+          cod, b.modalidade, valor, campos.local, campos.categoria, campos.motorista, campos.data_retirada, limite, v.id);
         await log(t, { pedido: p.id, veiculo: v.id }, req.user, 'Reserva alterada', `${cod} · ${b.modalidade} · R$ ${valor}`);
         return { veiculo_id: v.id };
       }
-      const { id: vid } = await t.get(`INSERT INTO frotas_veiculos (pedido_id, responsavel_id, responsavel_nome, codigo_reserva, local, categoria, modalidade, valor_contrato, motorista, data_retirada, status)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'reservado') RETURNING id`, p.id, p.solicitante_id, p.solicitante_nome, cod, campos.local, campos.categoria, b.modalidade, valor, campos.motorista, campos.data_retirada);
+      const { id: vid } = await t.get(`INSERT INTO frotas_veiculos (pedido_id, responsavel_id, responsavel_nome, codigo_reserva, local, categoria, modalidade, valor_contrato, motorista, data_retirada, data_limite, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'reservado') RETURNING id`, p.id, p.solicitante_id, p.solicitante_nome, cod, campos.local, campos.categoria, b.modalidade, valor, campos.motorista, campos.data_retirada, limite);
       await log(t, { pedido: p.id, veiculo: vid }, req.user, 'Reserva registrada', `${cod} · ${b.modalidade} · R$ ${valor}`);
       await paraPessoa(t, p.solicitante_email, `Veículo reservado (${p.codigo})`, `Seu veículo foi <b>reservado</b>.<br><br>Reserva: ${esc(cod)}<br>Retirada: ${brDate(campos.data_retirada)} em ${esc(campos.local)}<br>Categoria: ${esc(campos.categoria)}`);
       return { veiculo_id: vid };
@@ -644,13 +672,28 @@ export default {
         throw new RuleError(`O motorista "${m.motorista}" não está no banco de pessoas. Escolha um nome da lista.`);
       }
       // as fotos não são obrigatórias: o veículo pode ser ativado sem elas e as fotos entram depois
-      await t.run("UPDATE frotas_veiculos SET motorista = ?, cartao = ?, data_retirada = ?, placa = ?, km_retirada = ?, modelo = ?, status = 'em_uso', updated_at = now() WHERE id = ?",
-        m.motorista, m.cartao, m.data_retirada, m.placa, m.km_retirada, m.modelo, v.id);
+      // mensal: o prazo de 30 dias conta da retirada real; diária mantém a devolução combinada
+      const limite = prazoPrevisto(m.modalidade, m.data_retirada, m.data_limite);
+      await t.run("UPDATE frotas_veiculos SET motorista = ?, cartao = ?, data_retirada = ?, placa = ?, km_retirada = ?, modelo = ?, data_limite = ?, status = 'em_uso', updated_at = now() WHERE id = ?",
+        m.motorista, m.cartao, m.data_retirada, m.placa, m.km_retirada, m.modelo, limite, v.id);
       await log(t, { veiculo: v.id, pedido: v.pedido_id }, req.user, 'Veículo ativado', `${m.modelo} · ${m.placa} · ${m.motorista} · km ${m.km_retirada}`);
       if (v.pedido_id) {
         const p = await t.get("UPDATE frotas_pedidos SET status = 'em_uso', data_retirada = ?, motorista = ?, updated_at = now() WHERE id = ? RETURNING codigo, solicitante_email", m.data_retirada, m.motorista, v.pedido_id);
         if (p) await paraPessoa(t, p.solicitante_email, `Veículo liberado (${m.placa})`, `O veículo do pedido ${p.codigo} está <b>em uso</b>.<br><br>Modelo: ${esc(m.modelo)}<br>Placa: ${esc(m.placa)}<br>Motorista: ${esc(m.motorista)}`);
       }
+      return veiculoCentral(t, v.id);
+    }));
+
+    // Prolongar o prazo (data limite) do veículo: Controle mestre
+    r.post('/central/veiculos/:id/prolongar', cen, h(async (req, t) => {
+      const v = await getVeiculo(t, req.params.id);
+      if (!['reservado', 'em_uso'].includes(v.status)) throw new RuleError('Só veículo reservado ou em uso tem prazo para prolongar.');
+      const data = String(req.body?.data_limite || '');
+      if (!isDate(data)) throw new RuleError('Informe a nova data limite.');
+      if (v.data_retirada && data < v.data_retirada) throw new RuleError('A nova data não pode ser antes da retirada.');
+      if (v.data_limite && data <= v.data_limite) throw new RuleError('A nova data precisa ser depois da data limite atual.');
+      await t.run('UPDATE frotas_veiculos SET data_limite = ?, updated_at = now() WHERE id = ?', data, v.id);
+      await log(t, { veiculo: v.id, pedido: v.pedido_id }, req.user, 'Prazo prolongado', `${brDate(v.data_limite)} → ${brDate(data)}`);
       return veiculoCentral(t, v.id);
     }));
 
@@ -750,10 +793,10 @@ export default {
         { name: 'Veículos', columns: [{ label: 'ID', width: 6 }, { label: 'Reserva', width: 14 }, { label: 'Status', width: 12 }, { label: 'Placa', width: 10 }, { label: 'Modelo', width: 18 },
           { label: 'Motorista', width: 24 }, { label: 'Superior', width: 22 }, { label: 'Responsável', width: 22 }, { label: 'Local', width: 14 }, { label: 'Categoria', width: 9 },
           { label: 'Modalidade', width: 10 }, { label: 'Valor contrato', type: 'money' }, { label: 'Cartão', width: 12 }, { label: 'Início contrato', type: 'date' },
-          { label: 'Retirada', type: 'date' }, { label: 'Km retirada', width: 10 }, { label: 'Devolução', type: 'date' }, { label: 'Km devolução', width: 10 },
+          { label: 'Retirada', type: 'date' }, { label: 'Prazo limite', type: 'date' }, { label: 'Km retirada', width: 10 }, { label: 'Devolução', type: 'date' }, { label: 'Km devolução', width: 10 },
           { label: 'Km rodado', width: 10 }, { label: 'Chamado aberto', width: 26 }, { label: 'Motivo', width: 36 }],
           rows: veic.map((v) => [v.id, v.codigo_reserva, v.status_label, v.placa, v.modelo, v.motorista, v.superior, v.responsavel_nome, v.local, v.categoria, v.modalidade,
-            v.valor_contrato, v.cartao, v.inicio_contrato, v.data_retirada, v.km_retirada, v.data_devolucao, v.km_devolucao,
+            v.valor_contrato, v.cartao, v.inicio_contrato, v.data_retirada, v.data_limite, v.km_retirada, v.data_devolucao, v.km_devolucao,
             v.km_devolucao !== null && v.km_retirada !== null ? v.km_devolucao - v.km_retirada : null,
             v.chamado ? `${v.chamado.tipo_label} · ${v.chamado.status_label}` : '', v.motivo]) },
         { name: 'Pedidos', columns: [{ label: 'Pedido', width: 10 }, { label: 'Solicitante', width: 24 }, { label: 'Status', width: 12 }, { label: 'Retirada', type: 'date' },

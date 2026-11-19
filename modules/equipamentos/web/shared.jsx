@@ -46,8 +46,20 @@ export function Barra({ n, vazio, children }) {
   );
 }
 
+/** Projeto escolhido na lista da Central de Viagens (mantém um valor antigo que não está mais na lista). */
+export function ProjetoSelect({ projetos, value, onChange, autoFocus }) {
+  const lista = [...(projetos || [])];
+  if (value && !lista.includes(value)) lista.unshift(value);
+  return (
+    <select value={value} onChange={onChange} autoFocus={autoFocus}>
+      <option value="">Selecione…</option>
+      {lista.map((p) => <option key={p}>{p}</option>)}
+    </select>
+  );
+}
+
 /** Janela para informar o responsável (adicionar ou substituir usuário). */
-export function UsuarioModal({ titulo, aviso, ok, comPeriodo = true, onClose, onSalvar }) {
+export function UsuarioModal({ titulo, aviso, ok, comPeriodo = true, projetos, onClose, onSalvar }) {
   const [f, setF] = useState({ nome: '', projeto: '', superior: '', inicio: todayISO(), fim: '' });
   const [run, busy] = useAction();
   const set = (k) => (e) => setF((x) => ({ ...x, [k]: e.target.value }));
@@ -58,7 +70,7 @@ export function UsuarioModal({ titulo, aviso, ok, comPeriodo = true, onClose, on
       {aviso && <p className="small muted eq-m0">{aviso}</p>}
       <div className="eq-grid2">
         <Field label="Responsável pelo equipamento"><input value={f.nome} onChange={set('nome')} placeholder="Nome completo" autoFocus maxLength={120} /></Field>
-        <Field label="Projeto"><input value={f.projeto} onChange={set('projeto')} placeholder="Projeto" maxLength={80} /></Field>
+        <Field label="Projeto">{projetos ? <ProjetoSelect projetos={projetos} value={f.projeto} onChange={set('projeto')} /> : <input value={f.projeto} onChange={set('projeto')} placeholder="Projeto" maxLength={80} />}</Field>
         <Field label="Superior"><input value={f.superior} onChange={set('superior')} placeholder="Gestor responsável" maxLength={80} /></Field>
         {comPeriodo && <span />}
         {comPeriodo && <Field label="Data de início"><input type="date" value={f.inicio} onChange={set('inicio')} /></Field>}
@@ -83,7 +95,7 @@ export function PedidoModal({ cfg, inicial, onClose, onSalvar }) {
     <Modal title={inicial ? `Editar ${inicial.codigo}` : 'Nova solicitação'} onClose={onClose} wide
       footer={<><Button variant="outline" onClick={onClose}>Cancelar</Button><Button onClick={salvar} disabled={busy}>{inicial ? 'Salvar' : 'Adicionar à lista'}</Button></>}>
       <div className="eq-grid2">
-        <Field label="Projeto"><input value={f.projeto} onChange={set('projeto')} placeholder="Projeto" maxLength={80} autoFocus /></Field>
+        <Field label="Projeto"><ProjetoSelect projetos={cfg.projetos} value={f.projeto} onChange={set('projeto')} autoFocus /></Field>
         <Field label="Base de entrega"><select value={f.base} onChange={set('base')}>{cfg.bases.map((b) => <option key={b}>{b}</option>)}</select></Field>
         <Field label="Data de retirada"><input type="date" value={f.retirada || ''} onChange={set('retirada')} /></Field>
         <Field label="Devolução prevista"><input type="date" value={f.devolucao || ''} min={f.retirada || undefined} onChange={set('devolucao')} /></Field>

@@ -2,7 +2,9 @@ import { useEffect, useState } from 'react';
 import { Route, Routes } from 'react-router-dom';
 import { Plus, Send, Save, Trash2, Camera, Wrench, RefreshCw, UserRoundCog, FileX2, CheckCircle2, X, History } from 'lucide-react';
 import { Button, Card, Empty, Field, FiltroSelect, Modal, PageHeader, fmtDate, fmtDateTime, todayISO, useAction, useConfirm, useToast } from '@hub';
-import { ChamadoDialog, Colaboradores, FotosCarro, Opcoes, Status, TipoChamado, TrocaForm, km, useConfig, veic } from './shared.jsx';
+import {
+  ChamadoDialog, Colaboradores, DIAS_MENSAL, FotosCarro, Opcoes, PrazoTag, Status, TipoChamado, TrocaForm, km, somaDias, tipoModalidade, useConfig, veic,
+} from './shared.jsx';
 
 const EDITAVEL = (p) => ['rascunho', 'reprovado'].includes(p.status);
 const CHIPS = [
@@ -17,7 +19,8 @@ const CHIPS = [
 
 // =========================================================================== nova solicitação (lote)
 function NovaDialog({ api, cfg, onClose, onDone }) {
-  const [f, setF] = useState({ qtd: '1', data_retirada: '', local: '', categoria: '', motivo: '', motorista: '' });
+  const [f, setF] = useState({ qtd: '1', data_retirada: '', local: '', categoria: '', motivo: '', motorista: '', modalidade: '', data_prevista: '' });
+  const tipo = tipoModalidade(f.modalidade);
   const [erro, setErro] = useState('');
   const [busy, setBusy] = useState(false);
   const toast = useToast();
@@ -49,6 +52,16 @@ function NovaDialog({ api, cfg, onClose, onDone }) {
         <Field label="Data de retirada *"><input type="date" min={todayISO()} value={f.data_retirada} onChange={set('data_retirada')} /></Field>
         <Field label="Local de retirada *"><select value={f.local} onChange={set('local')}><Opcoes lista={cfg.locais} /></select></Field>
         <Field label="Categoria do veículo *"><select value={f.categoria} onChange={set('categoria')}><Opcoes lista={cfg.categorias} /></select></Field>
+        <Field label="Modalidade *"><select value={f.modalidade} onChange={set('modalidade')}><Opcoes lista={cfg.modalidades} /></select></Field>
+        {tipo === 'mensal' ? (
+          <Field label="Prazo limite" hint={`Mensal: até ${DIAS_MENSAL} dias a partir da retirada`}>
+            <input value={f.data_retirada ? fmtDate(somaDias(f.data_retirada, DIAS_MENSAL)) : 'Informe a data de retirada'} disabled />
+          </Field>
+        ) : (
+          <Field label={`Data de devolução${tipo === 'diaria' ? ' *' : ''}`}>
+            <input type="date" min={f.data_retirada || todayISO()} value={f.data_prevista} onChange={set('data_prevista')} disabled={!f.modalidade} />
+          </Field>
+        )}
       </div>
       <Field label="Motorista" hint="Pode deixar em branco e informar depois">
         <input list="fr-colab-novo" value={f.motorista} onChange={set('motorista')} placeholder="Nome do colaborador" />
@@ -76,13 +89,19 @@ function Linha({ p, cfg, api, onChange }) {
     if (await confirmar({ titulo: `Excluir ${p.codigo}?`, mensagem: 'A linha será removida. Não pode ser desfeito.', confirmar: 'Excluir', perigo: true })
       && await run(() => api.del(`/meus/pedidos/${p.id}`), 'Linha excluída')) onChange();
   };
-  const completo = v.data_retirada && v.local && v.categoria;
+  const tipo = tipoModalidade(v.modalidade);
+  const devol = tipo === 'mensal' ? somaDias(v.data_retirada, DIAS_MENSAL) : v.data_prevista;
+  const completo = v.data_retirada && v.local && v.categoria && v.modalidade && (tipo !== 'diaria' || v.data_prevista);
   return (
     <tr className={e ? 'fr-sujo' : ''}>
       <td className="fr-mono">{p.codigo}<div className="small muted">{fmtDate(p.created_at)}</div></td>
       <td>{editavel ? <input type="date" value={v.data_retirada || ''} onChange={set('data_retirada')} /> : fmtDate(p.data_retirada)}</td>
       <td>{editavel ? <select value={v.local || ''} onChange={set('local')}><Opcoes lista={cfg.locais} /></select> : p.local}</td>
       <td>{editavel ? <select value={v.categoria || ''} onChange={set('categoria')}><Opcoes lista={cfg.categorias} /></select> : p.categoria}</td>
+      <td>{editavel ? <select value={v.modalidade || ''} onChange={set('modalidade')}><Opcoes lista={cfg.modalidades} /></select> : (p.modalidade || '—')}</td>
+      <td>{editavel && tipo !== 'mensal'
+        ? <input type="date" min={v.data_retirada || undefined} value={v.data_prevista || ''} onChange={set('data_prevista')} />
+        : <>{devol ? fmtDate(devol) : '—'}{tipo === 'mensal' && <div className="small muted">mensal · {DIAS_MENSAL} dias</div>}</>}</td>
       <td className="fr-motivo">{editavel ? <input value={v.motivo || ''} onChange={set('motivo')} /> : (p.motivo || '—')}</td>
       <td>{editavel ? <input list="fr-colab-lin" value={v.motorista || ''} onChange={set('motorista')} placeholder="—" /> : (p.motorista || '—')}</td>
       <td>
@@ -115,7 +134,7 @@ function MeusPedidos({ api }) {
   const filtro = CHIPS.find((c) => c.k === chip).f;
   const vis = all.filter((p) => filtro(p) && (!local || p.local === local));
   const enviarTudo = async () => {
-    if (await confirmar({ titulo: `Enviar ${prontos} solicitação(ões)?`, mensagem: 'Todos os rascunhos completos (data, local e categoria) vão para a central aprovar.', confirmar: 'Enviar tudo' })
+    if (await confirmar({ titulo: `Enviar ${prontos} solicitação(ões)?`, mensagem: 'Todos os rascunhos completos (data, local, categoria e modalidade) vão para a central aprovar.', confirmar: 'Enviar tudo' })
       && await run(() => api.post('/meus/pedidos/enviar-todos'), (r) => `${r.enviados} solicitação(ões) enviada(s)`)) load();
   };
   const excluirReprovadas = async () => {
@@ -145,7 +164,7 @@ function MeusPedidos({ api }) {
         ) : (
           <div className="fr-scroll">
             <table className="table fr-table">
-              <thead><tr><th>Pedido</th><th>Data de retirada</th><th>Local de retirada</th><th>Categoria</th><th>Motivo</th><th>Motorista</th><th>Status</th><th>Ações</th></tr></thead>
+              <thead><tr><th>Pedido</th><th>Data de retirada</th><th>Local de retirada</th><th>Categoria</th><th>Modalidade</th><th>Devolução</th><th>Motivo</th><th>Motorista</th><th>Status</th><th>Ações</th></tr></thead>
               <tbody>{vis.map((p) => <Linha key={`${p.id}-${p.updated_at}`} p={p} cfg={cfg} api={api} onChange={load} />)}</tbody>
             </table>
             <Colaboradores id="fr-colab-lin" lista={cfg.colaboradores} />
@@ -271,6 +290,7 @@ function MeusVeiculos({ api }) {
                 <span><small>Retirada</small>{fmtDate(v.data_retirada)}</span>
                 <span><small>Km retirada</small>{km(v.km_retirada)}</span>
                 <span><small>Modalidade</small>{v.modalidade || '—'}</span>
+                <span><small>Prazo limite</small><PrazoTag data={v.data_limite} ativo={v.status === 'em_uso'} /></span>
                 <span><small>Fotos</small>{v.fotos_angulos}/{v.fotos_total}</span>
               </div>
               {v.status === 'reservado' && <div className="fr-aviso">Reservado — aguardando a central ativar o veículo com placa e motorista.</div>}

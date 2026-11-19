@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { Plus, Send, Pencil, Trash2, LogOut, Check, X, RotateCcw, CheckCheck, Search } from 'lucide-react';
+import { Plus, Send, Pencil, Trash2, LogOut, Check, X, Search } from 'lucide-react';
 import { Alert, Badge, Button, Card, Empty, Field, PageHeader, useConfirm, usePrompt } from '@hub';
 import { AJUSTE, Modal, SituacaoBadge, StatusPedidoBadge, fmtDate, fmtShort, money, useAction } from '../shared.jsx';
 import { Historico } from '../Solicitante.jsx';
@@ -183,7 +183,6 @@ export default function DetalheCentral({ module, api }) {
   const ativos = p.hospedes.filter((h) => h.status === 'ativo');
   const semQuarto = ativos.filter((h) => !h.quarto_id);
   const aEnviar = p.quartos.filter((q) => !q.enviado || q.situacao === 'alterado');
-  const motivoFin = abertas.length ? 'Há ajustes pendentes' : aEnviar.length ? 'Há quartos não enviados' : !p.quartos.length ? 'Sem quartos' : '';
   const emailMsg = (x) => (x.email ? `E-mail enviado para ${p.solicitante_email}` : 'O pedido não tem e-mail do solicitante');
 
   const novoQuarto = async () => {
@@ -196,11 +195,6 @@ export default function DetalheCentral({ module, api }) {
     if (await run(() => api.del(`/central/quartos/${q.id}`), `${q.codigo} apagado`)) load();
   };
   const enviarTudo = async () => { if (await run(() => api.post(`/central/pedidos/${p.id}/enviar-tudo`), (x) => `${x.enviados} quarto(s) enviado(s). ${emailMsg(x)}`)) load(); };
-  const finalizar = async () => {
-    if (!await perguntarSimNao({ titulo: `Finalizar o pedido ${p.codigo}?`, mensagem: 'O pedido vai para Finalizado. Dá para reabrir depois.', confirmar: 'Finalizar' })) return;
-    if (await run(() => api.post(`/central/pedidos/${p.id}/finalizar`), 'Pedido finalizado')) load();
-  };
-  const reabrir = async () => { if (await run(() => api.post(`/central/pedidos/${p.id}/reabrir`), 'Pedido reaberto')) load(); };
   const confirmar = async (s) => { if (s.tipo === 'prorrogar') return setProrr(s); if (await run(() => api.post(`/central/solicitacoes/${s.id}/confirmar`), (x) => `Confirmado · ${x.mensagem}`)) load(); };
   const recusar = async (s) => {
     const resposta = await perguntar({ titulo: `Desconsiderar o ajuste de ${s.hospede_nome || s.quarto_codigo || 'hóspede'}?`, mensagem: 'O quarto permanece como está. O motivo é enviado ao solicitante.', label: 'Motivo', confirmar: 'Desconsiderar' });
@@ -216,10 +210,8 @@ export default function DetalheCentral({ module, api }) {
         back={base}
         actions={<div className="tags">
           <StatusPedidoBadge p={p} />
-          {p.status === 'finalizado' && <Badge tone="muted">Finalizado pela central</Badge>}
-          {!encerrado && <Button variant="outline" onClick={finalizar} disabled={busy || !!motivoFin} title={motivoFin}><CheckCheck size={16} /> Finalizar pedido</Button>}
+          {p.status === 'finalizado' && <Badge tone="muted">Finalizado no financeiro</Badge>}
           {!encerrado && <Button variant="brand" onClick={enviarTudo} disabled={busy || !aEnviar.length}><Send size={16} /> Enviar tudo{aEnviar.length ? ` (${aEnviar.length})` : ''}</Button>}
-          {p.status === 'finalizado' && <Button variant="outline" onClick={reabrir} disabled={busy}><RotateCcw size={16} /> Reabrir</Button>}
         </div>}
       />
 
@@ -259,7 +251,7 @@ export default function DetalheCentral({ module, api }) {
         </div>
         <div className="hs-chips">
           {p.hospedes.map((h) => (
-            <span key={h.id} className={`hs-hchip ${h.status !== 'ativo' ? 'off' : h.quarto_id ? 'ok' : 'pend'}`}>
+            <span key={h.id} className={`hs-hchip ${h.status !== 'ativo' ? 'off' : h.quarto_id ? 'ok' : 'pend'} ${h.demitido ? 'hs-demitido' : ''}`} title={h.demitido ? 'Demitido(a) na Contratação' : undefined}>
               <b>{h.nome}</b><small>{h.status === 'cancelado' ? 'cancelado' : h.status === 'checkout' ? 'check-out' : h.quarto_codigo || 'sem quarto'}</small>
             </span>
           ))}

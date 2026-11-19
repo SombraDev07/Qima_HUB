@@ -140,3 +140,14 @@ td.fr-acts > * + * { margin-left: 6px; }
 .fr-cfg-lista li.inativo { opacity: .5; }
 .fr-busca { display: flex; align-items: center; gap: 6px; border: 1px solid var(--line); border-radius: 8px; padding: 0 8px; margin-bottom: 8px; color: var(--muted); }
 .fr-busca input { border: none; outline: none; height: 34px; flex: 1; }
+
+/* prazo do veículo (data limite + contagem de dias) */
+.fr-prazo { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.fr-prazo-n { font-size: 12px; font-weight: 700; border-radius: 999px; padding: 2px 8px; }
+.fr-prazo-verde { background: #e7f6ec; color: #1a7f37; }
+.fr-prazo-amarelo { background: #fff4d6; color: #9a6700; }
+.fr-prazo-vermelho { background: #fde8ea; color: #b42318; }
+.fr-prazo-cel { white-space: nowrap; }
+.fr-prazo-cel .fr-op { vertical-align: middle; margin-left: 2px; }
+.fr-table tr.fr-vencendo td { background: #fff1f1; }
+.fr-table tr.fr-vencendo td:first-child { box-shadow: inset 3px 0 0 #d92d20; }

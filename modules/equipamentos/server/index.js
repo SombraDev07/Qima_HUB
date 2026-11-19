@@ -147,7 +147,11 @@ export default {
     }
 
     // ------------------------------------------------------------ configuração
-    r.get('/config', ler(() => ({ tipos: TIPOS, bases: BASES, status_eq: STATUS_EQ, status_req: STATUS_REQ })));
+    // Projetos = a mesma lista da Central de Viagens (Hospedagens)
+    r.get('/config', ler(async () => ({
+      tipos: TIPOS, bases: BASES, status_eq: STATUS_EQ, status_req: STATUS_REQ,
+      projetos: (await db.all('SELECT nome FROM hospedagens_projetos WHERE ativo ORDER BY id')).map((x) => x.nome),
+    })));
 
     // ============================================================ OPERAÇÃO (solicitante)
     r.get('/minhas', sol, ler(async (req) => (await db.all(`${SOLIC} WHERE s.solicitante_id = ? ORDER BY s.id DESC LIMIT 400`, req.user.id)).map(comNecessidade)));

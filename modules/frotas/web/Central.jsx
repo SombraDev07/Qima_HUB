@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Route, Routes } from 'react-router-dom';
 import {
-  Check, X, CalendarCheck, Car, Camera, Save, RefreshCw, UserRoundCog, CircleX, FileSpreadsheet, History, Plus, Eye, EyeOff, Search, RotateCcw,
+  Check, X, CalendarCheck, CalendarPlus, Car, Camera, Save, RefreshCw, UserRoundCog, CircleX, FileSpreadsheet, History, Plus, Eye, EyeOff, Search, RotateCcw,
 } from 'lucide-react';
 import {
   Button, Card, Empty, Field, FiltroSelect, Modal, PageHeader, fmtDate, fmtDateTime, money, norm, todayISO, useAction, useConfirm, usePrompt, useToast,
 } from '@hub';
-import { Colaboradores, FotosCarro, Opcoes, Status, TipoChamado, TrocaForm, km, placaFmt, useConfig, veic } from './shared.jsx';
+import {
+  Colaboradores, DIAS_MENSAL, FotosCarro, Opcoes, PrazoTag, Status, TipoChamado, TrocaForm, diasAte, km, placaFmt, somaDias, tipoModalidade, useConfig, veic,
+} from './shared.jsx';
 
 const dias = (s) => {
   const d = Math.floor((Date.now() - new Date(String(s).replace(' ', 'T') + 'Z')) / 86400000);
@@ -110,12 +112,15 @@ function Aprovacoes({ api }) {
 
 // =========================================================================== reservas (novos pedidos aprovados)
 function LinhaReserva({ p, cfg, api, onChange }) {
-  const [e, setE] = useState({ codigo_reserva: p.codigo_reserva || '', modalidade: p.modalidade || '', valor_contrato: p.valor_contrato ?? '', data_retirada: p.data_retirada, categoria: p.categoria, motorista: p.motorista || '' });
+  const [e, setE] = useState({ codigo_reserva: p.codigo_reserva || '', modalidade: p.modalidade || '', valor_contrato: p.valor_contrato ?? '', data_retirada: p.data_retirada, categoria: p.categoria, motorista: p.motorista || '',
+    data_limite: p.data_limite || p.data_prevista || '' });
+  const tipo = tipoModalidade(e.modalidade);
   const [run, busy] = useAction();
   const set = (k) => (ev) => setE({ ...e, [k]: ev.target.value });
   const sujo = p.status === 'reservado' && (e.codigo_reserva !== (p.codigo_reserva || '') || e.modalidade !== (p.modalidade || '') || String(e.valor_contrato) !== String(p.valor_contrato ?? '')
-    || e.data_retirada !== p.data_retirada || e.categoria !== p.categoria || e.motorista !== (p.motorista || ''));
-  const pronto = e.codigo_reserva.trim() && e.modalidade && String(e.valor_contrato).trim();
+    || e.data_retirada !== p.data_retirada || e.categoria !== p.categoria || e.motorista !== (p.motorista || '')
+    || (tipo !== 'mensal' && e.data_limite !== (p.data_limite || p.data_prevista || '')));
+  const pronto = e.codigo_reserva.trim() && e.modalidade && String(e.valor_contrato).trim() && (tipo !== 'diaria' || e.data_limite);
   const reservar = async () => { if (await run(() => api.post(`/central/pedidos/${p.id}/reservar`, e), p.status === 'reservado' ? 'Alterações salvas' : `Reserva ${e.codigo_reserva} registrada`)) onChange(); };
   return (
     <tr className={sujo ? 'fr-sujo' : ''}>
@@ -127,6 +132,9 @@ function LinhaReserva({ p, cfg, api, onChange }) {
       <td><Status s={p.status} label={p.status_label} /></td>
       <td><input value={e.codigo_reserva} onChange={set('codigo_reserva')} placeholder="Código" className="fr-in-sm" /></td>
       <td><select value={e.modalidade} onChange={set('modalidade')}><Opcoes lista={cfg.modalidades} /></select></td>
+      <td>{tipo === 'mensal'
+        ? <>{fmtDate(somaDias(e.data_retirada, DIAS_MENSAL))}<div className="small muted">{DIAS_MENSAL} dias da retirada</div></>
+        : <input type="date" min={e.data_retirada || undefined} value={e.data_limite} onChange={set('data_limite')} />}</td>
       <td><input inputMode="decimal" value={e.valor_contrato} onChange={set('valor_contrato')} placeholder="0,00" className="fr-in-sm" /></td>
       <td className="fr-acts">
         {p.status === 'aprovado'
@@ -164,7 +172,7 @@ function Reservas({ api }) {
         {lista === null || !cfg ? <Empty>Carregando…</Empty> : !vis.length ? <Empty>{all.length ? 'Nenhuma solicitação com esses filtros.' : 'Nenhuma solicitação aprovada ou reservada no momento.'}</Empty> : (
           <div className="fr-scroll">
             <table className="table fr-table">
-              <thead><tr><th>Pedido</th><th>Data de retirada</th><th>Local de retirada</th><th>Categoria</th><th>Motorista</th><th>Status</th><th>Código reserva</th><th>Modalidade</th><th>Valor do contrato</th><th>Ações</th><th>Motivo</th></tr></thead>
+              <thead><tr><th>Pedido</th><th>Data de retirada</th><th>Local de retirada</th><th>Categoria</th><th>Motorista</th><th>Status</th><th>Código reserva</th><th>Modalidade</th><th>Devolução / prazo</th><th>Valor do contrato</th><th>Ações</th><th>Motivo</th></tr></thead>
               <tbody>{vis.map((p) => <LinhaReserva key={`${p.id}-${p.updated_at}`} p={p} cfg={cfg} api={api} onChange={load} />)}</tbody>
             </table>
             <Colaboradores id="fr-colab-res" lista={cfg.colaboradores} />
@@ -222,7 +230,7 @@ function Ativar({ api }) {
   const vis = (lista || []).filter((v) => (!f.local || v.local === f.local) && (!f.placa || norm(v.placa).includes(norm(f.placa)) || norm(v.codigo_reserva).includes(norm(f.placa))));
   return (
     <>
-      <PageHeader title="Ativar veículo" subtitle="Veículos reservados: na retirada, informe modelo, placa, motorista (do banco de pessoas), cartão e km para liberar o Ativar. As fotos (carro, triângulo, medidor de pneu, estepe e macaco) são recomendadas, mas não obrigatórias." back="/" />
+      <PageHeader title="Ativar veículo" subtitle="Veículos reservados: na retirada, informe modelo, placa, motorista (do banco de pessoas), cartão e km para liberar o Ativar. As fotos (carro, triângulo, pneu, estepe e macaco, documento do veículo, CNH e CPF/RG) são recomendadas, mas não obrigatórias. Ao ativar, o veículo fica Em uso." back="/" />
       <div className="fr-barra">
         <div className="fr-filtros">
           <FiltroSelect label="Local" value={f.local} onChange={(v) => setF({ ...f, local: v })} options={cfg?.locais || []} />
@@ -418,12 +426,31 @@ function HistoricoDialog({ api, v, onClose }) {
   );
 }
 
-function LinhaMestre({ v, cfg, statusOpcoes, edicao, onEdit, onSalvar, onOp, onFotos, onHist, busy }) {
+/** Prolongar o prazo (data limite) do veículo. */
+function ProlongarDialog({ api, v, onClose, onDone }) {
+  const sugestao = tipoModalidade(v.modalidade) === 'mensal' ? somaDias(v.data_limite || v.data_retirada || todayISO(), DIAS_MENSAL) : somaDias(v.data_limite || todayISO(), 1);
+  const [data, setData] = useState(sugestao);
+  const [run, busy] = useAction();
+  const ok = async () => { if (await run(() => api.post(`/central/veiculos/${v.id}/prolongar`, { data_limite: data }), 'Prazo prolongado')) onDone(); };
+  return (
+    <Modal title={`Prolongar prazo · ${veic(v)}`} onClose={onClose}
+      footer={<><Button variant="outline" onClick={onClose}>Voltar</Button><Button onClick={ok} disabled={busy || !data}><CalendarPlus size={14} /> Prolongar</Button></>}>
+      <p className="small muted fr-m0">{v.motorista || 'Sem motorista'} · {v.modalidade || 'sem modalidade'} · prazo atual <PrazoTag data={v.data_limite} /></p>
+      <Field label="Nova data limite" hint={tipoModalidade(v.modalidade) === 'mensal' ? `Sugestão: mais ${DIAS_MENSAL} dias` : undefined}>
+        <input type="date" min={somaDias(v.data_limite || v.data_retirada || todayISO(), 1)} value={data} onChange={(e) => setData(e.target.value)} />
+      </Field>
+    </Modal>
+  );
+}
+
+function LinhaMestre({ v, cfg, statusOpcoes, edicao, onEdit, onSalvar, onOp, onFotos, onHist, onProlongar, busy }) {
   const x = { ...v, ...(edicao || {}) };
   const set = (k, fn = (y) => y) => (ev) => onEdit(k, fn(ev.target.value));
   const emUso = v.status === 'em_uso';
+  const n = emUso ? diasAte(v.data_limite) : null;
+  const alerta = n !== null && n <= 2;
   return (
-    <tr className={`${edicao ? 'fr-sujo' : ''} ${v.encerramento ? 'fr-encerrando' : ''}`}>
+    <tr className={`${edicao ? 'fr-sujo' : ''} ${v.encerramento ? 'fr-encerrando' : ''} ${alerta ? 'fr-vencendo' : ''}`}>
       <td className="fr-acts fr-ops">
         <button className="fr-op" title="Trocar veículo" disabled={!emUso || !!v.chamado} onClick={() => onOp('troca')}><RefreshCw size={16} /></button>
         <button className="fr-op" title="Substituir condutor" disabled={!emUso || !!v.chamado} onClick={() => onOp('substituir')}><UserRoundCog size={16} /></button>
@@ -436,6 +463,10 @@ function LinhaMestre({ v, cfg, statusOpcoes, edicao, onEdit, onSalvar, onOp, onF
       <td><input value={x.codigo_reserva || ''} onChange={set('codigo_reserva')} className="fr-in-sm" /></td>
       <td><select value={x.categoria || ''} onChange={set('categoria')}><Opcoes lista={cfg.categorias} /></select></td>
       <td><select value={x.modalidade || ''} onChange={set('modalidade')}><Opcoes lista={cfg.modalidades} /></select></td>
+      <td className="fr-prazo-cel">
+        <PrazoTag data={v.data_limite} ativo={emUso} />
+        {['em_uso', 'reservado'].includes(v.status) && <button className="fr-op" title="Prolongar prazo" onClick={onProlongar}><CalendarPlus size={16} /></button>}
+      </td>
       <td><input inputMode="decimal" value={x.valor_contrato ?? ''} onChange={set('valor_contrato')} className="fr-in-sm" /></td>
       <td>
         <select value={x.status} onChange={set('status')}>{statusOpcoes.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>
@@ -464,6 +495,7 @@ function ControleMestre({ api }) {
   const [op, setOp] = useState(null);
   const [fotos, setFotos] = useState(null);
   const [hist, setHist] = useState(null);
+  const [prolongar, setProlongar] = useState(null);
   const [run, busy] = useAction();
   const confirmar = useConfirm();
   const load = () => api.get('/central/veiculos').then((l) => { setLista(l); setEdits({}); });
@@ -471,8 +503,9 @@ function ControleMestre({ api }) {
 
   const all = lista || [];
   const visiveis = all.filter((v) => !['substituido', 'trocado'].includes(v.status));
-  const cont = (s) => (s === 'encerramento' ? all.filter((v) => v.status === 'em_uso' && v.encerramento).length : all.filter((v) => v.status === s).length);
-  const vis = all.filter((v) => (!f.status ? true : f.status === 'encerramento' ? v.status === 'em_uso' && v.encerramento : v.status === f.status)
+  const vencendo = (v) => v.status === 'em_uso' && v.data_limite && diasAte(v.data_limite) <= 3;
+  const cont = (s) => (s === 'encerramento' ? all.filter((v) => v.status === 'em_uso' && v.encerramento).length : s === 'vencendo' ? all.filter(vencendo).length : all.filter((v) => v.status === s).length);
+  const vis = all.filter((v) => (!f.status ? true : f.status === 'encerramento' ? v.status === 'em_uso' && v.encerramento : f.status === 'vencendo' ? vencendo(v) : v.status === f.status)
     && (!f.local || v.local === f.local) && (!f.placa || norm(v.placa).includes(norm(f.placa)))
     && (!f.motorista || norm(v.motorista).includes(norm(f.motorista))));
   const sujos = Object.keys(edits).length;
@@ -514,6 +547,7 @@ function ControleMestre({ api }) {
         <button className={`fr-chip fr-chip-escuro ${!f.status ? 'on' : ''}`} onClick={() => setF({ ...f, status: '' })}>Total <b>{visiveis.length}</b></button>
         {CHIPS_ST.map(([k, l]) => <button key={k} className={`fr-chip ${f.status === k ? 'on' : ''}`} onClick={() => setF({ ...f, status: f.status === k ? '' : k })}>{l} <b>{cont(k)}</b></button>)}
         <button className={`fr-chip fr-chip-laranja ${f.status === 'encerramento' ? 'on' : ''}`} onClick={() => setF({ ...f, status: f.status === 'encerramento' ? '' : 'encerramento' })}>Encerramento <b>{cont('encerramento')}</b></button>
+        <button className={`fr-chip fr-chip-vermelho ${f.status === 'vencendo' ? 'on' : ''}`} onClick={() => setF({ ...f, status: f.status === 'vencendo' ? '' : 'vencendo' })} title="Em uso com prazo em até 3 dias ou vencido">Prazo acabando <b>{cont('vencendo')}</b></button>
       </div>
       <Card className="fr-card-tabela">
         <div className="fr-filtros fr-filtros-pad">
@@ -527,7 +561,7 @@ function ControleMestre({ api }) {
         {lista === null || !cfg ? <Empty>Carregando…</Empty> : !vis.length ? <Empty>{all.length ? 'Nenhum veículo corresponde aos filtros.' : 'Nenhum veículo cadastrado ainda.'}</Empty> : (
           <div className="fr-scroll fr-scroll-x">
             <table className="table fr-table fr-mestre fr-acao-fixa">
-              <thead><tr><th>Troca · Subst. · Fechar</th><th>Superior</th><th>Motorista</th><th>Data retirada</th><th>Local retirada</th><th>Código reserva</th><th>Categoria</th><th>Modalidade</th>
+              <thead><tr><th>Troca · Subst. · Fechar</th><th>Superior</th><th>Motorista</th><th>Data retirada</th><th>Local retirada</th><th>Código reserva</th><th>Categoria</th><th>Modalidade</th><th>Prazo</th>
                 <th>Valor contrato</th><th>Status</th><th>Placa</th><th>Cartão abastec.</th><th>Modelo</th><th>Km retirada</th><th>Data devolução</th><th>Km devolução</th><th /></tr></thead>
               <tbody>
                 {vis.map((v) => (
@@ -537,7 +571,7 @@ function ControleMestre({ api }) {
                       if (edits[v.id] && !await confirmar({ titulo: 'Há alterações não salvas nesta linha', mensagem: 'Elas serão descartadas. Continuar?', confirmar: 'Continuar' })) return;
                       setOp({ v, tipo });
                     }}
-                    onFotos={() => setFotos(v)} onHist={() => setHist(v)} />
+                    onFotos={() => setFotos(v)} onHist={() => setHist(v)} onProlongar={() => setProlongar(v)} />
                 ))}
               </tbody>
             </table>
@@ -548,6 +582,7 @@ function ControleMestre({ api }) {
       {op && <OperacaoDialog api={api} v={op.v} tipo={op.tipo} cfg={cfg} onClose={() => setOp(null)} onDone={() => { setOp(null); setF((x) => ({ ...x, status: '' })); load(); }} />}
       {fotos && <FotosCarro veiculo={fotos} onClose={() => setFotos(null)} onChange={load} podeTirar={['reservado', 'em_uso'].includes(fotos.status)} />}
       {hist && <HistoricoDialog api={api} v={hist} onClose={() => setHist(null)} />}
+      {prolongar && <ProlongarDialog api={api} v={prolongar} onClose={() => setProlongar(null)} onDone={() => { setProlongar(null); load(); }} />}
     </>
   );
 }

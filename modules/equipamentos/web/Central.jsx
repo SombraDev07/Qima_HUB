@@ -150,7 +150,7 @@ function Equipamentos({ api }) {
       {modal?.k === 'editar' && <EquipamentoModal cfg={cfg} inicial={modal.e} onClose={() => setModal(null)} onSalvar={async (f) => { const r = await api.put(`/central/equipamentos/${modal.e.id}`, f); load(); return r; }} />}
       {modal?.k === 'historico' && <HistoricoModal api={api} e={modal.e} onClose={() => setModal(null)} />}
       {modal?.k === 'usuario' && (
-        <UsuarioModal titulo={modal.substituir ? 'Substituir usuário' : 'Adicionar usuário'} ok={modal.substituir ? 'Substituir' : 'Adicionar'}
+        <UsuarioModal projetos={cfg?.projetos} titulo={modal.substituir ? 'Substituir usuário' : 'Adicionar usuário'} ok={modal.substituir ? 'Substituir' : 'Adicionar'}
           aviso={modal.ids.length > 1 ? `${modal.ids.length} equipamentos selecionados. ${modal.substituir ? '' : 'Os que não estão em estoque são ignorados.'}` : null}
           onClose={() => setModal(null)}
           onSalvar={async (f) => { const r = await api.post('/central/equipamentos/usuario', { ...f, ids: modal.ids, substituir: modal.substituir }); limpar(); load(); return r; }} />

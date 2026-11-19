@@ -29,6 +29,32 @@ export const placaFmt = (v) => {
   const s = String(v || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 7);
   return /^[A-Z]{3}\d{4}$/.test(s) ? `${s.slice(0, 3)}-${s.slice(3)}` : s;
 };
+// ------------------------------------------------------------------ modalidade e prazo
+/** 'mensal', 'diaria' ou '' pelo nome cadastrado da modalidade. */
+export const tipoModalidade = (nome) => {
+  const n = String(nome || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  return n.startsWith('mens') ? 'mensal' : n.startsWith('diar') ? 'diaria' : '';
+};
+export const DIAS_MENSAL = 30;
+export const somaDias = (iso, n) => { if (!iso) return ''; const d = new Date(`${String(iso).slice(0, 10)}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
+const diaLocal = () => { const d = new Date(); return Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()); };
+/** Dias de hoje até a data (negativo = já passou). */
+export const diasAte = (iso) => (iso ? Math.round((Date.parse(`${String(iso).slice(0, 10)}T00:00:00Z`) - diaLocal()) / 86400000) : null);
+/** Cor do prazo: vermelho até 2 dias (ou vencido), amarelo até 7, verde depois. */
+export const tomPrazo = (n) => (n === null ? '' : n <= 2 ? 'vermelho' : n <= 7 ? 'amarelo' : 'verde');
+export const textoPrazo = (n) => (n === null ? '' : n === 0 ? 'vence hoje' : n === 1 ? '1 dia' : n === -1 ? '-1 dia' : `${n} dias`);
+/** Data limite + contagem de dias (fica amarela e vermelha perto do fim; negativa quando venceu). */
+export function PrazoTag({ data, ativo = true }) {
+  if (!data) return <span className="muted">—</span>;
+  const n = ativo ? diasAte(data) : null;
+  return (
+    <span className="fr-prazo">
+      {fmtDate(data)}
+      {n !== null && <span className={`fr-prazo-n fr-prazo-${tomPrazo(n)}`} title={n < 0 ? `Venceu há ${-n} dia(s) e não foi renovado` : `Faltam ${n} dia(s)`}>{textoPrazo(n)}</span>}
+    </span>
+  );
+}
+
 export const km = (v) => (v === null || v === undefined || v === '' ? '—' : Number(v).toLocaleString('pt-BR'));
 export const veic = (v) => [v.modelo, v.placa].filter(Boolean).join(' · ') || 'Veículo sem placa';
 export const Opcoes = ({ lista, vazio = 'Selecione…' }) => (
