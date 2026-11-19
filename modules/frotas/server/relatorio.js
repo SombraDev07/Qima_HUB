@@ -1,5 +1,5 @@
 // Relatório do Frotas para a Administração: pedidos criados no período, veículos e chamados do período.
-import { PEDIDO_STATUS, VEICULO_STATUS, CHAMADO_TIPO, CHAMADO_STATUS } from './regras.js';
+import { PEDIDO_STATUS, VEICULO_STATUS, CHAMADO_TIPO, CHAMADO_STATUS, ANGULOS } from './regras.js';
 
 export default async function relatorio({ db, entre, periodo }) {
   const pedidos = await db.all(`SELECT * FROM frotas_pedidos WHERE ${entre('created_at')} ORDER BY id`, ...periodo);
@@ -26,7 +26,7 @@ export default async function relatorio({ db, entre, periodo }) {
         { label: 'Motorista', width: 22 }, { label: 'Superior', width: 20 }, { label: 'Responsável', width: 22 }, { label: 'Local', width: 13 },
         { label: 'Categoria', width: 9 }, { label: 'Modalidade', width: 10 }, { label: 'Valor do contrato', type: 'money' }, { label: 'Cartão', width: 10 },
         { label: 'Retirada', type: 'date' }, { label: 'Km retirada', width: 10 }, { label: 'Devolução', type: 'date' }, { label: 'Km devolução', width: 10 },
-        { label: 'Km rodado', width: 9 }, { label: 'Fotos (de 8)', width: 8 }, { label: 'Motivo', type: 'texto', width: 30 }],
+        { label: 'Km rodado', width: 9 }, { label: `Fotos (de ${ANGULOS.length})`, width: 8 }, { label: 'Motivo', type: 'texto', width: 30 }],
       rows: veic.map((v) => [v.pedido_codigo, v.codigo_reserva, VEICULO_STATUS[v.status] || v.status, v.placa, v.modelo, v.motorista,
         sup[String(v.motorista || '').toLowerCase()] || null, v.responsavel_nome, v.local, v.categoria, v.modalidade, v.valor_contrato, v.cartao,
         v.data_retirada, v.km_retirada, v.data_devolucao, v.km_devolucao, v.km_devolucao !== null && v.km_retirada !== null ? v.km_devolucao - v.km_retirada : null,

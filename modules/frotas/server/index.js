@@ -104,11 +104,6 @@ export default {
 
     const pedidoView = (p) => ({ ...p, status_label: PEDIDO_STATUS[p.status], completo: pedidoCompleto(p) });
     const chamadoView = (c) => (c ? { ...c, tipo_label: CHAMADO_TIPO[c.tipo], status_label: CHAMADO_STATUS[c.status] } : null);
-    /** Lados obrigatórios que ainda não têm foto. */
-    const fotosFaltando = async (t, veiculoId) => {
-      const feitos = new Set((await t.all('SELECT DISTINCT angulo FROM frotas_fotos WHERE veiculo_id = ?', veiculoId)).map((x) => x.angulo));
-      return ANGULOS.filter((a) => !feitos.has(a));
-    };
     /** Veículos prontos para a tela: chamado aberto e fotos de todos em 2 consultas (não 3 por veículo). */
     async function veiculosView(t, rows, sup = null) {
       if (!rows.length) return [];
@@ -137,9 +132,11 @@ export default {
     const veiculoCentral = async (t, id) => (await veiculosView(t, [await getVeiculo(t, id)], await superiores(t)))[0];
 
     // ------------------------------------------------------------ apoio
+    // Motoristas = banco de pessoas da Contratação (o mesmo da Hospedagem). Demitidos não aparecem.
+    const motoristas = async (t) => (await t.all('SELECT DISTINCT nome FROM contratacao_banco WHERE NOT demitido ORDER BY nome')).map((x) => x.nome);
     r.get('/config', ler(async () => ({
       locais: await nomes(db, 'locais'), categorias: await nomes(db, 'categorias'), modalidades: await nomes(db, 'modalidades'),
-      colaboradores: await nomes(db, 'colaboradores'), tipos_manutencao: TIPOS_MANUTENCAO, horas: HORAS, angulos: ANGULOS,
+      colaboradores: await motoristas(db), tipos_manutencao: TIPOS_MANUTENCAO, horas: HORAS, angulos: ANGULOS,
       pedido_status: PEDIDO_STATUS, veiculo_status: VEICULO_STATUS, chamado_tipo: CHAMADO_TIPO, chamado_status: CHAMADO_STATUS,
     })));
 
@@ -643,8 +640,10 @@ export default {
       const falta = [!m.motorista && 'motorista', !m.cartao && 'cartão de abastecimento', !isDate(m.data_retirada) && 'data de retirada',
         !m.placa && 'placa', m.km_retirada === null && 'km de retirada', !m.modelo && 'modelo'].filter(Boolean);
       if (falta.length) throw new RuleError(`Preencha: ${falta.join(', ')}.`);
-      const semFoto = await fotosFaltando(t, v.id);
-      if (semFoto.length) throw new RuleError(`Faltam fotos do carro: ${semFoto.join(', ')}. Tire todas antes de ativar.`);
+      if (!await t.get('SELECT 1 FROM contratacao_banco WHERE NOT demitido AND lower(nome) = lower(?)', m.motorista)) {
+        throw new RuleError(`O motorista "${m.motorista}" não está no banco de pessoas. Escolha um nome da lista.`);
+      }
+      // as fotos não são obrigatórias: o veículo pode ser ativado sem elas e as fotos entram depois
       await t.run("UPDATE frotas_veiculos SET motorista = ?, cartao = ?, data_retirada = ?, placa = ?, km_retirada = ?, modelo = ?, status = 'em_uso', updated_at = now() WHERE id = ?",
         m.motorista, m.cartao, m.data_retirada, m.placa, m.km_retirada, m.modelo, v.id);
       await log(t, { veiculo: v.id, pedido: v.pedido_id }, req.user, 'Veículo ativado', `${m.modelo} · ${m.placa} · ${m.motorista} · km ${m.km_retirada}`);

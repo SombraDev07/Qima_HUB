@@ -52,8 +52,8 @@ export const CHAMADO_STATUS = {
 export const CHAMADO_ABERTO = ['pendente', 'aprovado', 'agendado', 'reprovado'];
 export const TIPOS_MANUTENCAO = ['Pneu', 'Elétrica', 'Mecânica', 'Funilaria', 'Revisão', 'Outros'];
 export const HORAS = ['08:00', '09:00', '10:00', '11:00', '13:00', '14:00', '15:00', '16:00'];
-// Fotos obrigatórias do carro (todas exigidas para ativar o veículo)
-export const ANGULOS = ['Frontal', 'Traseira', 'Lateral esquerda', 'Lateral direita', 'Interior', 'Painel', 'Triângulo', 'Medidor de pneu'];
+// Fotos do carro (opcionais: o veículo pode ser ativado sem elas)
+export const ANGULOS = ['Frontal', 'Traseira', 'Lateral esquerda', 'Lateral direita', 'Interior', 'Painel', 'Triângulo', 'Medidor de pneu', 'Estepe + Macaco'];
 
 // As funções abaixo recebem "db": o banco (pg) ou, dentro de transação, o "t".
 // "tabela" é sempre um nome fixo deste sistema (locais, categorias, modalidades, colaboradores), nunca texto da tela.

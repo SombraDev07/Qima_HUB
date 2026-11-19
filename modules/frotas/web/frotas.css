@@ -66,6 +66,7 @@ td.fr-acts > * + * { margin-left: 6px; }
 .fr-op-x { color: #c8102e; }
 .fr-op:disabled { color: #c9cdd2; cursor: default; }
 .btn.fr-fotos-falta { border-color: #f0b98a; color: #9a3412; background: #fff7ed; }
+.fr-invalido { border-color: #f04438 !important; background: #fff5f5; }
 .fr-link { background: none; border: none; color: #0c303e; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; padding: 0; }
 
 /* status */

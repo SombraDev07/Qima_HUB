@@ -101,7 +101,7 @@ function LadoFoto({ angulo, foto, enviando, onTirar, onVer, podeTirar }) {
   );
 }
 
-/** Painel lateral "Fotos do carro": lados do carro + triângulo + medidor de pneu, cada foto exige GPS. */
+/** Painel lateral "Fotos do carro": lados do carro + triângulo + medidor de pneu + estepe e macaco, cada foto exige GPS. */
 export function FotosCarro({ veiculo, onClose, podeTirar = true, onChange }) {
   const { user } = useAuth();
   const toast = useToast();
@@ -149,7 +149,7 @@ export function FotosCarro({ veiculo, onClose, podeTirar = true, onChange }) {
           <div><h3>Fotos do carro</h3><span className="muted small">{veic(veiculo)}{veiculo.motorista ? ` · ${veiculo.motorista}` : ''}</span></div>
           <button className="icon-btn" onClick={onClose} aria-label="Fechar"><X size={20} /></button>
         </div>
-        <p className="small muted fr-m0">A foto grava o item, data, hora, GPS e quem tirou. Sem localização a foto não entra. Todas são obrigatórias para ativar o veículo — {feitas}/{angulos.length} feitas.</p>
+        <p className="small muted fr-m0">A foto grava o item, data, hora, GPS e quem tirou. Sem localização a foto não entra. As fotos são opcionais: o veículo pode ser ativado sem elas — {feitas}/{angulos.length} feitas.</p>
         {fotos === null ? <p className="muted">Carregando…</p> : (
           <div className="fr-lados">
             {angulos.map((a) => (

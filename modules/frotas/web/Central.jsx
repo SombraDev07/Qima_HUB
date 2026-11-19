@@ -176,14 +176,17 @@ function Reservas({ api }) {
 }
 
 // =========================================================================== ativar veículo
-function LinhaAtivar({ v, api, onChange, onFotos }) {
+function LinhaAtivar({ v, api, onChange, onFotos, motoristas }) {
   const [e, setE] = useState({ data_retirada: v.data_retirada || '', modelo: v.modelo || '', placa: v.placa || '', motorista: v.motorista || '', cartao: v.cartao || '', km_retirada: v.km_retirada ?? '' });
   const [run, busy] = useAction();
   const set = (k, fn = (x) => x) => (ev) => setE({ ...e, [k]: fn(ev.target.value) });
-  const dados = e.data_retirada && e.modelo.trim() && e.placa && e.motorista.trim() && e.cartao.trim() && String(e.km_retirada) !== '';
+  // o motorista tem que ser uma pessoa do banco (mesma lista da Hospedagem)
+  const motoristaOk = motoristas.has(norm(e.motorista.trim()));
+  const dados = e.data_retirada && e.modelo.trim() && e.placa && motoristaOk && e.cartao.trim() && String(e.km_retirada) !== '';
   const fotosOk = !v.fotos_faltando?.length;
-  const pronto = dados && fotosOk;
-  const dica = !dados ? 'Preencha modelo, placa, motorista, cartão, km e data' : !fotosOk ? `Faltam fotos: ${v.fotos_faltando.join(', ')}` : '';
+  // fotos são opcionais: o Ativar não depende delas
+  const pronto = dados;
+  const dica = e.motorista.trim() && !motoristaOk ? 'Escolha o motorista na lista do banco de pessoas' : !dados ? 'Preencha modelo, placa, motorista, cartão, km e data' : '';
   const ativar = async () => { if (await run(() => api.post(`/central/veiculos/${v.id}/ativar`, e), `Veículo ${e.placa} ativado · em uso`)) onChange(); };
   const salvar = async () => { if (await run(() => api.put(`/central/veiculos/${v.id}`, e), 'Rascunho do veículo salvo')) onChange(); };
   return (
@@ -193,13 +196,14 @@ function LinhaAtivar({ v, api, onChange, onFotos }) {
       <td><input type="date" value={e.data_retirada} onChange={set('data_retirada')} /></td>
       <td><input value={e.modelo} onChange={set('modelo')} placeholder="Modelo" className="fr-in-sm" /></td>
       <td><input value={e.placa} onChange={set('placa', placaFmt)} placeholder="ABC-1234" className="fr-in-placa" /></td>
-      <td><input list="fr-colab-at" value={e.motorista} onChange={set('motorista')} placeholder="Motorista" /></td>
+      <td><input list="fr-colab-at" value={e.motorista} onChange={set('motorista')} placeholder="Buscar pessoa" className={e.motorista.trim() && !motoristaOk ? 'fr-invalido' : ''}
+        title={e.motorista.trim() && !motoristaOk ? 'Não está no banco de pessoas: escolha um nome da lista' : ''} /></td>
       <td><input value={e.cartao} onChange={set('cartao')} placeholder="Cartão" className="fr-in-sm" /></td>
       <td><input inputMode="numeric" value={e.km_retirada} onChange={set('km_retirada', (x) => x.replace(/\D/g, ''))} className="fr-in-km" /></td>
       <td className="fr-acts">
         <Button className="btn-sm" onClick={ativar} disabled={busy || !pronto} title={dica}><Car size={14} /> Ativar</Button>
         <Button className="btn-sm" variant="outline" onClick={salvar} disabled={busy}><Save size={14} /></Button>
-        <Button className={`btn-sm ${fotosOk ? '' : 'fr-fotos-falta'}`} variant="outline" onClick={onFotos} title={fotosOk ? 'Todas as fotos tiradas' : `Faltam: ${v.fotos_faltando.join(', ')}`}>
+        <Button className="btn-sm" variant="outline" onClick={onFotos} title={fotosOk ? 'Todas as fotos tiradas' : `Opcional · sem foto: ${v.fotos_faltando.join(', ')}`}>
           <Camera size={14} /> Fotos {v.fotos_angulos}/{v.fotos_total}
         </Button>
       </td>
@@ -214,10 +218,11 @@ function Ativar({ api }) {
   const [fotos, setFotos] = useState(null);
   const load = () => api.get('/central/veiculos?status=reservado').then(setLista);
   useEffect(() => { load(); }, []);
+  const motoristas = useMemo(() => new Set((cfg?.colaboradores || []).map((n) => norm(n))), [cfg]);
   const vis = (lista || []).filter((v) => (!f.local || v.local === f.local) && (!f.placa || norm(v.placa).includes(norm(f.placa)) || norm(v.codigo_reserva).includes(norm(f.placa))));
   return (
     <>
-      <PageHeader title="Ativar veículo" subtitle="Veículos reservados: na retirada, informe modelo, placa, motorista, cartão e km e tire todas as fotos (carro, triângulo e medidor de pneu). Só então o Ativar libera." back="/" />
+      <PageHeader title="Ativar veículo" subtitle="Veículos reservados: na retirada, informe modelo, placa, motorista (do banco de pessoas), cartão e km para liberar o Ativar. As fotos (carro, triângulo, medidor de pneu, estepe e macaco) são recomendadas, mas não obrigatórias." back="/" />
       <div className="fr-barra">
         <div className="fr-filtros">
           <FiltroSelect label="Local" value={f.local} onChange={(v) => setF({ ...f, local: v })} options={cfg?.locais || []} />
@@ -231,7 +236,7 @@ function Ativar({ api }) {
           <div className="fr-scroll">
             <table className="table fr-table fr-acao-fixa">
               <thead><tr><th>Cód. reserva</th><th>Local</th><th>Categoria</th><th>Data retirada</th><th>Modelo</th><th>Placa</th><th>Motorista</th><th>Cartão abastecimento</th><th>Km retirada</th><th>Ações</th></tr></thead>
-              <tbody>{vis.map((v) => <LinhaAtivar key={`${v.id}-${v.updated_at}`} v={v} api={api} onChange={load} onFotos={() => setFotos(v)} />)}</tbody>
+              <tbody>{vis.map((v) => <LinhaAtivar key={`${v.id}-${v.updated_at}`} v={v} api={api} onChange={load} onFotos={() => setFotos(v)} motoristas={motoristas} />)}</tbody>
             </table>
             <Colaboradores id="fr-colab-at" lista={cfg.colaboradores} />
           </div>
