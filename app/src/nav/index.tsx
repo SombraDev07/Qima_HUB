@@ -30,7 +30,7 @@ function Principal() {
   const { totalPendencias } = useAuth();
   return (
     <Abas.Navigator screenOptions={{
-      headerShown: false, tabBarActiveTintColor: t.marca === '#0c303e' && t.fundo !== '#f3f6f7' ? '#8ab8f5' : '#0c303e', tabBarInactiveTintColor: t.suave,
+      headerShown: false, tabBarActiveTintColor: t.fundo !== '#f3f6f7' ? '#ff5c75' : '#e4002b', tabBarInactiveTintColor: t.suave,
       tabBarStyle: { backgroundColor: t.cartao, borderTopColor: t.linha, height: 62, paddingTop: 6, paddingBottom: 8 }, tabBarLabelStyle: { fontSize: 12, fontWeight: '700' },
     }}>
       <Abas.Screen name="InicioAba" component={InicioPilha} options={{ title: 'Início', tabBarIcon: ({ color, focused }) => <Icone nome={focused ? 'home' : 'home-outline'} tamanho={24} cor={color} /> }} />

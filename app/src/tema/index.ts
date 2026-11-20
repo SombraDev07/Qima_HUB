@@ -9,7 +9,7 @@ export const claro = {
   suaveFundo: '#e9eef0',
   linha: '#dbe3e7',
   marca: '#0c303e',
-  destaque: '#c8102e',
+  destaque: '#e4002b',
   destaqueFundo: '#fde6ea',
   sobreMarca: '#ffffff',
   erro: '#b42318',

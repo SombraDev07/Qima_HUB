@@ -21,7 +21,7 @@ export const Icone = ({ nome, tamanho = 22, cor }: { nome: NomeIcone; tamanho?: 
 export function Cabecalho({ titulo, subtitulo, aoVoltar, direita }: { titulo: string; subtitulo?: string; aoVoltar?: () => void; direita?: ReactNode }) {
   const t = useTema();
   return (
-    <View style={[e.cabecalho, { backgroundColor: t.marca }]}>
+    <View style={[e.cabecalho, { backgroundColor: t.marca, borderBottomWidth: 3, borderBottomColor: '#e4002b' }]}>
       {aoVoltar ? (
         <Pressable accessibilityRole="button" accessibilityLabel="Voltar" onPress={aoVoltar} hitSlop={8} style={e.cabBotao}><Ionicons name="arrow-back" size={24} color="#fff" /></Pressable>
       ) : <View style={{ width: 8 }} />}
@@ -69,13 +69,13 @@ export const Secao = ({ titulo, direita }: { titulo: string; direita?: ReactNode
 
 // ------------------------------------------------------------------ botões
 export function Botao({ titulo, onPress, variante = 'principal', carregando = false, desabilitado = false, icone, estilo, pequeno = false }: {
-  titulo: string; onPress: () => void; variante?: 'principal' | 'contorno' | 'perigo' | 'suave'; carregando?: boolean; desabilitado?: boolean;
+  titulo: string; onPress: () => void; variante?: 'principal' | 'destaque' | 'contorno' | 'perigo' | 'suave'; carregando?: boolean; desabilitado?: boolean;
   icone?: NomeIcone; estilo?: StyleProp<ViewStyle>; pequeno?: boolean;
 }) {
   const t = useTema();
   const off = desabilitado || carregando;
-  const cor = variante === 'perigo' ? t.erro : t.marca;
-  const cheio = variante === 'principal';
+  const cor = variante === 'perigo' ? t.erro : variante === 'destaque' ? '#e4002b' : t.marca;
+  const cheio = variante === 'principal' || variante === 'destaque';
   const fundo = cheio ? cor : variante === 'suave' ? t.suaveFundo : 'transparent';
   const frente = cheio ? t.sobreMarca : cor;
   return (
