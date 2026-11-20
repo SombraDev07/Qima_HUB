@@ -109,7 +109,7 @@ function LadoFoto({ angulo, foto, enviando, onTirar, onVer, podeTirar }) {
         {foto ? (
           <span className="small muted">
             {fmtDateTime(foto.tirada_em)}<br />
-            <MapPin size={12} /> {foto.lat.toFixed(5)}, {foto.lon.toFixed(5)}<br />
+            <MapPin size={12} /> {foto.lat != null ? `${Number(foto.lat).toFixed(5)}, ${Number(foto.lon).toFixed(5)}` : 'Sem GPS'}<br />
             {foto.autor_nome}
           </span>
         ) : <span className="small muted">sem foto</span>}
@@ -147,19 +147,21 @@ export function FotosCarro({ veiculo, onClose, podeTirar = true, onChange }) {
   const tirar = async (angulo, file) => {
     setEnviando(angulo);
     try {
-      const pos = await posicao();
+      // GPS é opcional: sem localização a foto entra com "Sem GPS" no carimbo
+      const pos = await posicao().catch(() => null);
       const quando = new Date();
       const blob = await carimbar(file, [
         `${angulo} · ${veiculo.placa || veiculo.codigo_reserva || ''}`,
-        `${quando.toLocaleString('pt-BR')} · ${pos.lat.toFixed(5)}, ${pos.lon.toFixed(5)}`,
+        `${quando.toLocaleString('pt-BR')} · ${pos ? `${pos.lat.toFixed(5)}, ${pos.lon.toFixed(5)}` : 'Sem GPS'}`,
         `${user.name} · ${user.email}`,
       ]);
       // horário em UTC, como o resto do banco (a tela converte para o fuso de quem vê)
-      const qs = new URLSearchParams({ angulo, lat: pos.lat, lon: pos.lon, precisao: pos.precisao ?? '', tirada_em: quando.toISOString().slice(0, 19) });
+      const qs = new URLSearchParams({ angulo, tirada_em: quando.toISOString().slice(0, 19),
+        ...(pos ? { lat: pos.lat, lon: pos.lon, precisao: pos.precisao ?? '' } : {}) });
       const r = await fetch(`/api/m/frotas/veiculos/${veiculo.id}/fotos?${qs}`, { method: 'POST', credentials: 'same-origin', body: blob, headers: { 'Content-Type': 'image/jpeg' } });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(d.error || 'Não salvou a foto.');
-      toast(`Foto ${angulo} salva`);
+      toast(pos ? `Foto ${angulo} salva` : `Foto ${angulo} salva sem GPS`);
       await carregar();
       onChange?.();
     } catch (e) {
@@ -175,7 +177,7 @@ export function FotosCarro({ veiculo, onClose, podeTirar = true, onChange }) {
           <div><h3>Fotos do carro</h3><span className="muted small">{veic(veiculo)}{veiculo.motorista ? ` · ${veiculo.motorista}` : ''}</span></div>
           <button className="icon-btn" onClick={onClose} aria-label="Fechar"><X size={20} /></button>
         </div>
-        <p className="small muted fr-m0">A foto grava o item, data, hora, GPS e quem tirou. Sem localização a foto não entra. As fotos são opcionais: o veículo pode ser ativado sem elas — {feitas}/{angulos.length} feitas.</p>
+        <p className="small muted fr-m0">A foto grava o item, data, hora, GPS (quando o aparelho informa) e quem tirou. As fotos são opcionais: o veículo pode ser ativado sem elas — {feitas}/{angulos.length} feitas.</p>
         {fotos === null ? <p className="muted">Carregando…</p> : (
           <div className="fr-lados">
             {angulos.map((a) => (

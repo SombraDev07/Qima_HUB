@@ -44,6 +44,7 @@ export async function encerrarSessoes(userId, manterReq = null, t = pg) {
 
 // ---------------------------------------------------------------- login do app de celular (token no cabeçalho Authorization)
 const APP_MS = 30 * 24 * 60 * 60 * 1000; // 30 dias, renovados a cada uso
+const APP_MAX_DIAS = 90;                   // e no máximo 90 dias desde o login: depois disso, entrar de novo
 const bearerDe = (req) => { const m = /^Bearer (qha_[A-Za-z0-9_-]{20,100})$/.exec(req.headers.authorization || ''); return m ? m[1] : null; };
 
 /** Cria o token do aparelho. Devolve o texto do token (só aparece aqui; no banco fica o hash). */
@@ -52,6 +53,16 @@ export async function criarTokenApp(userId, { dispositivo = null, ip = null } = 
   await pg.run(`INSERT INTO app_tokens (user_id, token_hash, dispositivo, ip, expira_em) VALUES (?, ?, ?, ?, now() + interval '30 days')`,
     userId, hashSessao(token), dispositivo ? String(dispositivo).slice(0, 80) : null, ip);
   return { token, expira_em: new Date(Date.now() + APP_MS).toISOString() };
+}
+
+/** Aparelhos com o app conectado (para a tela "Meus aparelhos"). */
+export function aparelhosDoUsuario(userId) {
+  return pg.all(`SELECT id, dispositivo, created_at, ultimo_uso, expira_em FROM app_tokens
+    WHERE user_id = ? AND expira_em > now() ORDER BY ultimo_uso DESC`, userId);
+}
+/** Desconecta um aparelho da própria pessoa. */
+export async function desconectarAparelho(userId, id) {
+  await pg.run('DELETE FROM app_tokens WHERE id = ? AND user_id = ?', Number(id) || 0, userId);
 }
 
 export async function revogarTokenApp(req) {
@@ -99,14 +110,17 @@ export const loadUser = a(async (req, _res, next) => {
   }
   const bearer = !req.user && bearerDe(req);
   if (bearer) {
-    const t = await pg.get(`SELECT t.id, t.ultimo_uso, u.id AS uid, u.name, u.email, u.is_admin
-      FROM app_tokens t JOIN users u ON u.id = t.user_id WHERE t.token_hash = ? AND t.expira_em > now() AND u.active`, hashSessao(bearer));
+    const t = await pg.get(`SELECT t.id, t.ultimo_uso, u.id AS uid, u.name, u.email
+      FROM app_tokens t JOIN users u ON u.id = t.user_id
+      WHERE t.token_hash = ? AND t.expira_em > now() AND t.created_at > now() - interval '${APP_MAX_DIAS} days' AND u.active`, hashSessao(bearer));
     if (t) {
-      req.user = { id: t.uid, name: t.name, email: t.email, is_admin: t.is_admin };
+      // O app é só do lado Solicitante: o token dele nunca vale como administrador (nem como Central, veja moduleLoader)
+      req.user = { id: t.uid, name: t.name, email: t.email, is_admin: false };
       req.appTokenId = t.id;
-      // renova a validade (no máximo 1 vez por hora, para não gravar a cada pedido)
-      if (Date.now() - Date.parse(t.ultimo_uso.replace(' ', 'T') + 'Z') > 3600_000) {
-        await pg.run(`UPDATE app_tokens SET ultimo_uso = now(), expira_em = now() + interval '30 days' WHERE id = ?`, t.id);
+      // renova a validade (no máximo 1 vez por hora, para não gravar a cada pedido), sem passar do limite de 90 dias
+      if (Date.now() - new Date(String(t.ultimo_uso).replace(' ', 'T').replace(/(\d)$/, '$1Z')).getTime() > 3600_000) {
+        await pg.run(`UPDATE app_tokens SET ultimo_uso = now(),
+          expira_em = LEAST(now() + interval '30 days', created_at + interval '${APP_MAX_DIAS} days') WHERE id = ?`, t.id);
       }
     }
   }
@@ -130,4 +144,5 @@ export function hasRole(role, wanted) {
 
 export async function cleanExpiredSessions() {
   await pg.run('DELETE FROM sessions WHERE expires_at <= ?', Date.now());
+  await pg.run(`DELETE FROM app_tokens WHERE expira_em <= now() OR created_at <= now() - interval '${APP_MAX_DIAS} days'`);
 }

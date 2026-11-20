@@ -8,7 +8,7 @@ export type Veiculo = {
   inicio_contrato?: string | null; data_retirada?: string | null; km_retirada?: number | null; modalidade?: string | null; data_limite?: string | null; fotos_angulos: number; fotos_total: number; chamado?: Chamado | null; situacao?: string | null;
 };
 export type PedidoV = { id: number; codigo: string; data_retirada?: string | null; local?: string | null; categoria?: string | null; motivo?: string | null; motorista?: string | null; modalidade?: string | null; data_prevista?: string | null; status: string; status_label: string; resposta?: string | null; completo?: boolean; created_at: string; updated_at?: string };
-export type Foto = { id: number; angulo: string; lat: number; lon: number; tirada_em: string; autor_nome?: string };
+export type Foto = { id: number; angulo: string; lat: number | null; lon: number | null; tirada_em: string; autor_nome?: string };
 export type Config = { locais: string[]; categorias: string[]; modalidades: string[]; colaboradores: string[]; tipos_manutencao: string[]; angulos: string[] };
 export const TOM: Record<string, 'neutro' | 'info' | 'aviso' | 'ok' | 'marca' | 'erro'> = {
   rascunho: 'neutro', solicitado: 'aviso', aprovado: 'info', reprovado: 'marca', reservado: 'info', em_uso: 'ok', encerrado: 'neutro', substituido: 'neutro', trocado: 'neutro', pendente: 'aviso', agendado: 'ok', finalizado: 'neutro', cancelado: 'neutro',

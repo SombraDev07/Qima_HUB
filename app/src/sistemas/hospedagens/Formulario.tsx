@@ -4,9 +4,10 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import municipios from '../../dados/municipios.json';
 import { api } from '../../api/cliente';
 import { useTema } from '../../tema';
-import { Aviso, Botao, Campo, CampoData, CampoSelecao, Carregando, Chip, Folha, Icone, Secao, Tela, useAviso, useConfirmar } from '../../ui';
+import { Aviso, Botao, Campo, CampoData, CampoSelecao, Carregando, Chip, Folha, Icone, Secao, Tela, useAviso, useConfirmar, AvisoRascunho } from '../../ui';
 import { useAcao } from '../../util/carregar';
 import { diasEntre, hoje, norm, somaDias } from '../../util/datas';
+import { useRascunhoLocal } from '../../util/rascunho';
 import type { Opcoes, Pedido, Pessoa } from './tipos';
 
 const M = '/api/m/hospedagens';
@@ -127,7 +128,9 @@ function SeletorHospedes({ valor, aoMudar }: { valor: HospedeForm[]; aoMudar: (h
 export function Formulario() {
   const nav = useNavigation<any>();
   const t = useTema();
-  const id = (useRoute().params as { id?: number } | undefined)?.id;
+  const params = useRoute().params as { id?: number; copiar?: number } | undefined;
+  const id = params?.id;
+  const copiar = params?.copiar;
   const avisar = useAviso();
   const confirmar = useConfirmar();
   const { executar, ocupado } = useAcao();
@@ -137,6 +140,8 @@ export function Formulario() {
   const [erroCidade, setErroCidade] = useState('');
   const [f, setF] = useState({ cidade: '', uf: 'PR', data_inicio: hoje(), data_fim: somaDias(hoje(), 5), projeto: '', garagem: 'sem', obs: '', hospedes: [] as HospedeForm[] });
   const set = useCallback(<K extends keyof typeof f>(k: K, v: (typeof f)[K]) => setF((x) => ({ ...x, [k]: v })), []);
+  // pedido novo (sem "repetir"): o que for digitado fica guardado no aparelho até enviar
+  const rasc = useRascunhoLocal('hospedagens-novo', f, setF, !id && !copiar);
 
   useEffect(() => {
     api<Opcoes>(`${M}/opcoes`).then((o) => { setOpcoes(o); setF((x) => ({ ...x, projeto: x.projeto || o.projetos[0] || '' })); }).catch((x) => setErro(x.message));
@@ -147,7 +152,15 @@ export function Formulario() {
           hospedes: p.hospedes.filter((h) => h.status !== 'cancelado').map((h) => ({ pessoa_id: h.pessoa_id ?? undefined, nome: h.nome, email: h.email, tipo: h.tipo, demitido: h.demitido })) });
       }).catch((x) => setErro(x.message));
     }
-  }, [id]);
+    // "Repetir pedido": mesma cidade, projeto, garagem e hóspedes; datas novas a partir de hoje com a mesma duração
+    if (copiar && !id) {
+      api<Pedido>(`${M}/pedidos/${copiar}`).then((p) => {
+        const dias = Math.max(1, diasEntre(p.data_inicio, p.data_fim));
+        setF({ cidade: p.cidade, uf: p.uf, data_inicio: hoje(), data_fim: somaDias(hoje(), dias), projeto: p.projeto ?? '', garagem: p.garagem ?? 'sem', obs: p.obs ?? '',
+          hospedes: p.hospedes.filter((h) => h.status !== 'cancelado').map((h) => ({ pessoa_id: h.pessoa_id ?? undefined, nome: h.nome, email: h.email, tipo: h.tipo, demitido: h.demitido })) });
+      }).catch((x) => setErro(x.message));
+    }
+  }, [id, copiar]);
 
   const noites = diasEntre(f.data_inicio, f.data_fim);
   const salvar = async (rascunho: boolean) => {
@@ -160,6 +173,7 @@ export function Formulario() {
       ? api<{ id: number; codigo: string }>(`${M}/meus/${id}`, { metodo: 'PUT', corpo: { ...f, cidade, rascunho } })
       : api<{ id: number; codigo: string }>(`${M}/meus`, { metodo: 'POST', corpo: { ...f, cidade, rascunho } })));
     if (!r.ok) { setErro(r.erro); return; }
+    rasc.limpar();
     avisar(rascunho ? `Rascunho salvo · ${r.valor.codigo}` : `Pedido enviado · ${r.valor.codigo}`);
     if (rascunho) nav.goBack(); else nav.replace('hospedagens.Pedido', { id: r.valor.id });
   };
@@ -181,6 +195,7 @@ export function Formulario() {
         </>
       )}>
       {!!erro && <Aviso texto={erro} />}
+      <AvisoRascunho restaurado={rasc.restaurado} aoDescartar={rasc.descartar} />
       <Secao titulo="Onde e quando" />
       <CampoSelecao rotulo="Estado" valor={f.uf} opcoes={UFS.map((u) => ({ valor: u, rotulo: u }))} aoMudar={(u) => setF((x) => ({ ...x, uf: u, cidade: MUN[u]?.some((n) => norm(n) === norm(x.cidade)) ? x.cidade : '' }))} />
       <CampoCidade uf={f.uf} cidade={f.cidade} aoMudar={(c) => { set('cidade', c); setErroCidade(''); }} erro={erroCidade} />

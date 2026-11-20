@@ -3,9 +3,10 @@ import { Pressable, Text, View } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { api } from '../../api/cliente';
 import { useTema } from '../../tema';
-import { Aviso, Botao, Campo, CampoData, CampoSelecao, Carregando, Icone, Secao, Tela, useAviso } from '../../ui';
+import { Aviso, Botao, Campo, CampoData, CampoSelecao, Carregando, Icone, Secao, Tela, useAviso, AvisoRascunho } from '../../ui';
 import { useAcao } from '../../util/carregar';
 import { diasEntre } from '../../util/datas';
+import { useRascunhoLocal } from '../../util/rascunho';
 import { opcoesProjeto, type Config, type Item, type Solicitacao } from './tipos';
 
 const M = '/api/m/equipamentos';
@@ -20,6 +21,7 @@ export function Formulario() {
   const [erro, setErro] = useState('');
   const [f, setF] = useState({ projeto: '', base: '', retirada: '', devolucao: '', colaborador: '', cpf: '', obs: '', itens: [{ tipo: '', qtd: 1, motivo: 'Novo' }] as Item[] });
   const set = <K extends keyof typeof f>(k: K, v: (typeof f)[K]) => setF((x) => ({ ...x, [k]: v }));
+  const rasc = useRascunhoLocal('equipamentos-novo', f, setF, !id);
   const setItem = (i: number, p: Partial<Item>) => set('itens', f.itens.map((it, j) => (j === i ? { ...it, ...p } : it)));
 
   useEffect(() => {
@@ -39,6 +41,7 @@ export function Formulario() {
     const corpo = { ...f, itens: f.itens.map((i) => ({ ...i, qtd: Number(i.qtd) || 1 })) };
     const r = await executar(() => (id ? api(`${M}/solicitacoes/${id}`, { metodo: 'PUT', corpo }) : api(`${M}/solicitacoes`, { metodo: 'POST', corpo })));
     if (!r.ok) { setErro(r.erro); return; }
+    rasc.limpar();
     avisar(id ? 'Rascunho atualizado' : 'Solicitação adicionada como rascunho'); nav.goBack();
   };
 
@@ -46,6 +49,7 @@ export function Formulario() {
   return (
     <Tela titulo={id ? 'Editar rascunho' : 'Nova solicitação'} subtitulo="Equipamentos" aoVoltar={() => nav.goBack()} rodape={<Botao titulo={id ? 'Salvar' : 'Adicionar à lista'} onPress={salvar} carregando={ocupado} estilo={{ flex: 1 }} />}>
       {!!erro && <Aviso texto={erro} />}
+      <AvisoRascunho restaurado={rasc.restaurado} aoDescartar={rasc.descartar} />
       <Secao titulo="Entrega" />
       <CampoSelecao rotulo="Projeto" valor={f.projeto} opcoes={opcoesProjeto(cfg, f.projeto)} aoMudar={(v) => set('projeto', v)} />
       <CampoSelecao rotulo="Base de entrega" valor={f.base} opcoes={(cfg?.bases ?? []).map((b) => ({ valor: b, rotulo: b }))} aoMudar={(v) => set('base', v)} />

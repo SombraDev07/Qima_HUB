@@ -14,6 +14,15 @@ Hospedagens (viagens), Equipamentos, Solicitações (com conversa e planilha), D
 Frotas (pedidos, veículos, chamados e fotos do carro com câmera do app + GPS + carimbo) e Contratação (vagas e pedido de demissão).
 Falta: notificações push, biometria, ícone/splash definitivos e teste em celular real.
 
+**Segurança e uso (20/11/2026):** o login do app vale só como Solicitante (sem Central, Administração ou relatórios) e no máximo 90 dias;
+Perfil com aparelhos conectados, bloqueio por digital/PIN e contato da central (definido no site em Administração → App);
+fotos protegidas ficam só na memória e tudo do aparelho é apagado ao sair; fotos do Frotas sem GPS são aceitas ("Sem GPS" no carimbo)
+e, sem internet, vão para uma fila que sobe sozinha; rascunho automático nos formulários novos; "Repetir pedido" (Hospedagens e Frotas);
+mapa e ligação para o hotel; aviso do prazo do veículo nas pendências; notificações push (só no app instalado com projeto EAS: veja abaixo).
+
+**Notificações push:** o servidor manda o mesmo aviso do e-mail para o celular. Para funcionar é preciso o app instalado (não o Expo Go),
+`eas init` (grava o `projectId` no app.json) e as credenciais do Firebase (FCM) no EAS. Sem isso o app só não registra o aparelho.
+
 **Alinhado com o site em 20/11/2026:** Frotas (modalidade diária/mensal com devolução e prazo de 30 dias, prazo limite com contagem,
 motorista escolhido do banco de pessoas, fotos opcionais), Hospedagens (status pelas datas, abas Pedidos/Hóspedes/Quartos com
 ajuste por hóspede ou do quarto inteiro, Finalizado trava os ajustes, demitidos em vermelho), Contratação (Meus Colaboradores com

@@ -1,18 +1,32 @@
-// Câmera do app para as fotos do carro: tira a foto, pega o GPS NO MOMENTO do clique, grava o carimbo (lado, placa, data, GPS, quem tirou)
-// na própria imagem e envia. Não aceita foto da galeria: é a prova de "tirada agora, neste lugar".
+// Câmera do app para as fotos do carro: tira a foto, pega o GPS NO MOMENTO do clique, grava o carimbo (item, placa, data, GPS, quem tirou)
+// na própria imagem e envia. Sem GPS a foto entra com "Sem GPS" no carimbo. Sem internet, fica na fila e sobe quando o sinal voltar.
+// Não aceita foto da galeria: é a prova de "tirada agora".
 import { useRef, useState } from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as Location from 'expo-location';
 import { captureRef } from 'react-native-view-shot';
 import { useNavigation, useRoute } from '@react-navigation/native';
-import { enviarArquivo } from '../../api/cliente';
+import { ApiErro, enviarArquivo } from '../../api/cliente';
+import { enfileirar } from '../../util/fila';
 import { useAuth } from '../../auth/AuthContext';
 import { Aviso, Botao, Icone, Tela, useAviso } from '../../ui';
 import { useAcao } from '../../util/carregar';
 import { reduzirFoto } from '../../util/foto';
 
-type Tirada = { uri: string; w: number; h: number; lat: number; lon: number; precisao: number | null; quando: Date };
+type Tirada = { uri: string; w: number; h: number; lat: number | null; lon: number | null; precisao: number | null; quando: Date };
+
+/** Posição do aparelho, se der em até 12 s; senão null (a foto entra sem GPS). */
+async function posicaoOuNada(): Promise<Location.LocationObject | null> {
+  try {
+    const p = await Location.requestForegroundPermissionsAsync();
+    if (!p.granted) return null;
+    return await Promise.race([
+      Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High }),
+      new Promise<null>((ok) => setTimeout(() => ok(null), 12_000)),
+    ]);
+  } catch { return null; }
+}
 const LARGURA = 1400;
 
 export function Camera() {
@@ -30,34 +44,40 @@ export function Camera() {
 
   const linhas = foto ? [
     `${angulo} · ${rotulo}`,
-    `${foto.quando.toLocaleString('pt-BR')} · ${foto.lat.toFixed(5)}, ${foto.lon.toFixed(5)}`,
+    `${foto.quando.toLocaleString('pt-BR')} · ${foto.lat != null && foto.lon != null ? `${foto.lat.toFixed(5)}, ${foto.lon.toFixed(5)}` : 'Sem GPS'}`,
     `${usuario?.name} · ${usuario?.email}`,
   ] : [];
 
   const tirar = async () => {
     setErro(''); setTirando(true);
     try {
-      const loc = await Location.requestForegroundPermissionsAsync();
-      if (!loc.granted) throw new Error('Libere a localização (GPS) nas configurações do aparelho. Sem ela a foto não entra.');
-      const [pos, img] = await Promise.all([
-        Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High }),
-        cam.current!.takePictureAsync({ quality: 0.9, skipProcessing: false }),
-      ]);
+      const quando = new Date();
+      const [pos, img] = await Promise.all([posicaoOuNada(), cam.current!.takePictureAsync({ quality: 0.9, skipProcessing: false })]);
       if (!img) throw new Error('Não foi possível tirar a foto. Tente de novo.');
       const uri = await reduzirFoto(img.uri, img.width, img.height);
-      setFoto({ uri, w: img.width, h: img.height, lat: pos.coords.latitude, lon: pos.coords.longitude, precisao: pos.coords.accuracy ?? null, quando: new Date() });
-    } catch (x) { setErro(x instanceof Error ? x.message : 'Sem localização. Libere o GPS e tire a foto de novo.'); } finally { setTirando(false); }
+      setFoto({ uri, w: img.width, h: img.height, lat: pos?.coords.latitude ?? null, lon: pos?.coords.longitude ?? null, precisao: pos?.coords.accuracy ?? null, quando });
+    } catch (x) { setErro(x instanceof Error ? x.message : 'Não foi possível tirar a foto. Tente de novo.'); } finally { setTirando(false); }
   };
 
   const usar = async () => {
     if (!foto || !carimbo.current) return;
+    const semGps = foto.lat == null || foto.lon == null;
     const r = await executar(async () => {
       const arquivo = await captureRef(carimbo.current!, { format: 'jpg', quality: 0.86, result: 'tmpfile', width: LARGURA });
-      const qs = new URLSearchParams({ angulo, lat: String(foto.lat), lon: String(foto.lon), precisao: foto.precisao != null ? String(foto.precisao) : '', tirada_em: foto.quando.toISOString().slice(0, 19) });
-      return enviarArquivo(`/api/m/frotas/veiculos/${veiculoId}/fotos?${qs}`, arquivo, 'image/jpeg');
+      const qs = new URLSearchParams({ angulo, tirada_em: foto.quando.toISOString().slice(0, 19),
+        ...(semGps ? {} : { lat: String(foto.lat), lon: String(foto.lon), precisao: foto.precisao != null ? String(foto.precisao) : '' }) }).toString();
+      try {
+        await enviarArquivo(`/api/m/frotas/veiculos/${veiculoId}/fotos?${qs}`, arquivo, 'image/jpeg');
+        return 'enviada' as const;
+      } catch (e) {
+        // sem internet: guarda no aparelho e sobe sozinha depois (com a data, a hora e o GPS do clique)
+        if (e instanceof ApiErro && e.status === 0) { await enfileirar({ veiculoId, angulo, rotulo, qs }, arquivo); return 'fila' as const; }
+        throw e;
+      }
     });
     if (!r.ok) { setErro(r.erro); return; }
-    avisar(`Foto ${angulo} salva`); nav.goBack();
+    avisar(r.valor === 'fila' ? `Sem internet: a foto ${angulo} ficou guardada e sobe sozinha quando o sinal voltar.` : `Foto ${angulo} salva${semGps ? ' sem GPS' : ''}`);
+    nav.goBack();
   };
 
   if (!perm) return <Tela titulo={`Foto: ${angulo}`} aoVoltar={() => nav.goBack()}><View /></Tela>;
@@ -80,7 +100,7 @@ export function Camera() {
           {!!erro && <View style={e.erro}><Aviso texto={erro} /></View>}
           <View style={e.base}>
             <Pressable accessibilityRole="button" accessibilityLabel="Tirar foto" onPress={tirar} disabled={tirando} style={[e.disparo, { opacity: tirando ? 0.5 : 1 }]}><View style={e.disparoMiolo} /></Pressable>
-            <Text style={{ color: '#d6e3e8', marginTop: 8, fontSize: 12.5 }}>{tirando ? 'Pegando a localização…' : 'A foto grava data, hora e GPS'}</Text>
+            <Text style={{ color: '#d6e3e8', marginTop: 8, fontSize: 12.5 }}>{tirando ? 'Tirando a foto…' : 'A foto grava data, hora e GPS (se o celular informar)'}</Text>
           </View>
         </>
       ) : (

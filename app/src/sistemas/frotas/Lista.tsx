@@ -3,9 +3,11 @@ import { Text, View } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { api } from '../../api/cliente';
 import { useTema } from '../../tema';
-import { Aviso, Botao, Campo, CampoBusca, CampoData, CampoSelecao, Carregando, Cartao, Chip, Folha, ItemLista, Segmentos, Tela, Vazio, useAviso, useConfirmar } from '../../ui';
+import { AvisoRascunho, Aviso, Botao, Campo, CampoBusca, CampoData, CampoSelecao, Carregando, Cartao, Chip, Folha, ItemLista, Segmentos, Tela, Vazio, useAviso, useConfirmar } from '../../ui';
 import { useAcao, useCarregar } from '../../util/carregar';
 import { fmtData, fmtDataHora, hoje, somaDias } from '../../util/datas';
+import { useRascunhoLocal } from '../../util/rascunho';
+import { FalarComCentral } from '../../ui/Contato';
 import { DIAS_MENSAL, TOM, diasAte, km, placaFmt, textoPrazo, tipoModalidade, tomPrazo, veic, type Chamado, type Config, type PedidoV, type Veiculo } from './tipos';
 
 /** Devolução prevista: mensal = retirada + 30 dias; diária = a data informada. */
@@ -58,6 +60,12 @@ function Pedidos({ cfg }: { cfg: Config }) {
   const [nova, setNova] = useState(false);
   const VAZIO = { qtd: '1', data_retirada: '', local: '', categoria: '', motivo: '', motorista: '', modalidade: '', data_prevista: '' };
   const [n, setN] = useState(VAZIO);
+  const rasc = useRascunhoLocal('frotas-novo', n, setN, true);
+  /** "Repetir pedido": abre a nova solicitação com o local, a categoria, a modalidade, o motorista e o motivo deste. */
+  const repetir = (p: PedidoV) => {
+    setN({ ...VAZIO, local: p.local ?? '', categoria: p.categoria ?? '', modalidade: p.modalidade ?? '', motorista: p.motorista ?? '', motivo: p.motivo ?? '' });
+    setEdit(null); setErroForm(''); setNova(true);
+  };
   const [erroForm, setErroForm] = useState('');
   const todos = dados ?? [];
   const prontos = todos.filter((p) => p.status === 'rascunho' && p.completo).length;
@@ -88,7 +96,7 @@ function Pedidos({ cfg }: { cfg: Config }) {
     if (!/^\d+$/.test(n.qtd) || q < 1 || q > 30) { setErroForm('Quantidade inválida: digite um número de 1 a 30.'); return; }
     const r = await executar(() => api<{ criados?: number; enviados?: number }>(`${M}/meus/pedidos`, { metodo: 'POST', corpo: { ...n, qtd: q, enviar } }));
     if (!r.ok) { setErroForm(r.erro); return; }
-    avisar(enviar ? `${r.valor.enviados} pedido(s) enviado(s) para a central` : `${r.valor.criados} rascunho(s) criado(s)`); setNova(false); setN(VAZIO); void recarregar();
+    avisar(enviar ? `${r.valor.enviados} pedido(s) enviado(s) para a central` : `${r.valor.criados} rascunho(s) criado(s)`); setNova(false); setN(VAZIO); rasc.limpar(); void recarregar();
   };
 
   const chips = [['', 'Total'], ['rascunho', 'Rascunho'], ['enviadas', 'Enviadas'], ['reprovado', 'Reprovadas'], ['reservado', 'Reservados'], ['em_uso', 'Em uso'], ['encerrado', 'Encerrados']] as const;
@@ -135,6 +143,7 @@ function Pedidos({ cfg }: { cfg: Config }) {
                 {!!edit.motivo && <Text style={{ color: t.texto, marginTop: 8 }}>{edit.motivo}</Text>}
               </>
             )}
+            {!EDITAVEL(edit) && <Botao titulo="Repetir pedido" icone="copy-outline" variante="contorno" onPress={() => repetir(edit)} estilo={{ marginTop: 14 }} />}
             {['rascunho', 'solicitado', 'reprovado'].includes(edit.status) && <Botao titulo="Excluir" icone="trash-outline" variante="perigo" onPress={() => excluir(edit)} estilo={{ marginTop: 14 }} />}
           </>
         )}
@@ -143,6 +152,7 @@ function Pedidos({ cfg }: { cfg: Config }) {
       <Folha aberto={nova} titulo="Solicitação de veículos" aoFechar={() => setNova(false)}
         rodape={<View style={{ flexDirection: 'row', gap: 10 }}><Botao titulo="Rascunho" variante="contorno" onPress={() => criar(false)} carregando={ocupado} estilo={{ flex: 1 }} /><Botao titulo="Enviar" icone="send" onPress={() => criar(true)} carregando={ocupado} estilo={{ flex: 1 }} /></View>}>
         {!!erroForm && <Aviso texto={erroForm} />}
+        <AvisoRascunho restaurado={rasc.restaurado} aoDescartar={rasc.descartar} />
         <Campo rotulo="Quantidade de veículos" value={n.qtd} onChangeText={(v) => setN({ ...n, qtd: v.replace(/\D/g, '').slice(0, 2) })} keyboardType="number-pad" dica="De 1 a 30: cria uma linha por veículo." />
         <CampoData rotulo="Data de retirada" valor={n.data_retirada} minimo={hoje()} aoMudar={(v) => setN({ ...n, data_retirada: v })} />
         <CampoSelecao rotulo="Local de retirada" valor={n.local} opcoes={cfg.locais.map((x) => ({ valor: x, rotulo: x }))} aoMudar={(v) => setN({ ...n, local: v })} />
@@ -284,6 +294,8 @@ function Veiculos({ cfg }: { cfg: Config }) {
           </>
         )}
       </Folha>
+
+      {lista.length > 0 && <FalarComCentral assunto="o meu veículo" />}
 
       <Folha aberto={hist} titulo="Meus chamados" aoFechar={() => setHist(false)}>
         {!(ch.dados ?? []).length ? <Vazio titulo="Nenhum chamado ainda" /> : (ch.dados ?? []).map((x) => (

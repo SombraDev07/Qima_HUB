@@ -59,10 +59,13 @@ export default {
         (SELECT COUNT(*) FROM frotas_pedidos WHERE solicitante_id = ? AND status = 'rascunho') AS rascunhos,
         (SELECT COUNT(*) FROM frotas_pedidos WHERE solicitante_id = ? AND status = 'reprovado' AND updated_at >= now() - interval '7 days') AS reprovados,
         (SELECT COUNT(*) FROM frotas_chamados c JOIN frotas_veiculos v ON v.id = c.veiculo_id
-          WHERE v.responsavel_id = ? AND c.status IN ('agendado','reprovado')) AS chamados`, user.id, user.id, user.id);
+          WHERE v.responsavel_id = ? AND c.status IN ('agendado','reprovado')) AS chamados,
+        (SELECT COUNT(*) FROM frotas_veiculos WHERE responsavel_id = ? AND status = 'em_uso' AND data_limite IS NOT NULL AND data_limite <= CURRENT_DATE + 3) AS vencendo`,
+      user.id, user.id, user.id, user.id);
       out.push({ link: 'solicitante', qtd: r.rascunhos, texto: 'pedido(s) de veículo não enviado(s)' });
       out.push({ link: 'solicitante', qtd: r.reprovados, texto: 'pedido(s) de veículo reprovado(s)' });
       out.push({ link: 'solicitante/veiculos', qtd: r.chamados, texto: 'chamado(s) agendado(s) ou respondido(s) — finalize' });
+      out.push({ link: 'solicitante/veiculos', qtd: r.vencendo, texto: 'veículo(s) com o prazo acabando ou vencido — peça prorrogação ou devolva' });
     }
     return out;
   },
@@ -176,15 +179,21 @@ export default {
         if (!['reservado', 'em_uso'].includes(v.status)) throw new RuleError('Só dá para fotografar veículo reservado ou em uso.');
         const angulo = String(req.query.angulo || '');
         if (!ANGULOS.includes(angulo)) throw new RuleError('Lado da foto inválido.');
-        const lat = Number(req.query.lat); const lon = Number(req.query.lon);
-        if (!Number.isFinite(lat) || !Number.isFinite(lon) || (lat === 0 && lon === 0) || Math.abs(lat) > 90 || Math.abs(lon) > 180) {
-          throw new RuleError('Sem localização. Libere o GPS do navegador e tire a foto de novo.');
+        // GPS é opcional: sem localização a foto entra e o carimbo diz "Sem GPS". Se veio, tem que ser válido.
+        const temGps = req.query.lat != null && req.query.lat !== '' && req.query.lon != null && req.query.lon !== '';
+        const lat = temGps ? Number(req.query.lat) : null; const lon = temGps ? Number(req.query.lon) : null;
+        if (temGps && (!Number.isFinite(lat) || !Number.isFinite(lon) || (lat === 0 && lon === 0) || Math.abs(lat) > 90 || Math.abs(lon) > 180)) {
+          throw new RuleError('Localização inválida. Tire a foto de novo.');
         }
         const mime = String(req.headers['content-type'] || '').split(';')[0];
         if (!MIMES[mime]) throw new RuleError('Envie uma foto (JPG, PNG ou WEBP).');
         if (!req.body?.length) throw new RuleError('Foto vazia.');
         const tirada = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(String(req.query.tirada_em || '')) ? String(req.query.tirada_em).slice(0, 19).replace('T', ' ') : agora();
-        if (Number.isNaN(Date.parse(`${tirada.replace(' ', 'T')}Z`))) throw new RuleError('Data da foto inválida.');
+        const quando = Date.parse(`${tirada.replace(' ', 'T')}Z`);
+        if (Number.isNaN(quando)) throw new RuleError('Data da foto inválida.');
+        // a hora vem do aparelho: não aceita foto "do futuro" nem antiga demais (a fila do app guarda no máximo 3 dias)
+        if (quando > Date.now() + 10 * 60_000) throw new RuleError('A data e a hora do aparelho estão erradas (no futuro). Acerte o relógio do celular e tire a foto de novo.');
+        if (quando < Date.now() - 3 * 86400_000) throw new RuleError('Foto tirada há mais de 3 dias. Tire uma foto nova.');
         arquivo = `${Date.now()}-${crypto.randomBytes(6).toString('hex')}${MIMES[mime]}`;
         await arquivos.salvar(arquivo, req.body, mime);
         const foto = await db.tx(async (t) => {
@@ -192,7 +201,7 @@ export default {
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`, v.id, angulo, arquivo, mime, req.body.length, lat, lon,
           Number.isFinite(Number(req.query.precisao)) && req.query.precisao !== '' && req.query.precisao != null ? Number(req.query.precisao) : null,
           tirada, req.user.id, req.user.name, req.user.email);
-          await log(t, { veiculo: v.id }, req.user, 'Foto do carro', `${angulo} · ${lat.toFixed(5)}, ${lon.toFixed(5)}`);
+          await log(t, { veiculo: v.id }, req.user, 'Foto do carro', `${angulo} · ${temGps ? `${lat.toFixed(5)}, ${lon.toFixed(5)}` : 'sem GPS'}`);
           return t.get('UPDATE frotas_fotos SET codigo = ? WHERE id = ? RETURNING *', codigo('FT', id), id);
         });
         res.status(201).json(foto);

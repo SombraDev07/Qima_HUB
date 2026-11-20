@@ -1,10 +1,11 @@
 import { useCallback, useState } from 'react';
-import { Text, View } from 'react-native';
+import { Linking, Text, View } from 'react-native';
 import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import { api } from '../../api/cliente';
 import { useTema } from '../../tema';
 import { Aviso, Botao, Campo, CampoData, Cartao, Carregando, Chip, Folha, Secao, Tela, useAviso, useConfirmar } from '../../ui';
 import { useAcao, useCarregar } from '../../util/carregar';
+import { FalarComCentral } from '../../ui/Contato';
 import { diasEntre, fmtData, somaDias } from '../../util/datas';
 import {
   ROTULO_AJUSTE, abertasDe, ajusteDoHospede, ajusteDoQuarto, pedidoAtivo, quartoDe, statusHospede, statusPedido, statusQuarto,
@@ -124,6 +125,14 @@ export function CartaoQuarto({ p, q, aoAjuste, aoRetirar, ocupado, comPedido = f
       <Text style={{ color: t.suave, fontSize: 13.5 }}>{[q.hotel_endereco, q.hotel_telefone].filter(Boolean).join(' · ')}</Text>
       <Text style={{ color: t.texto, marginTop: 8 }}>{fmtData(q.data_in)} → {fmtData(q.data_out)} · {q.dias} diária(s)</Text>
       <Text style={{ color: t.suave, fontSize: 13.5 }}>{q.ocupantes.map((o) => o.nome).join(', ') || 'Sem hóspedes'}</Text>
+      {/* hotel com um toque: rota no mapa e ligação */}
+      {(!!q.hotel_endereco || !!q.hotel_telefone) && (
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
+          {!!(q.hotel_nome || q.hotel_endereco) && <Botao titulo="Ver no mapa" icone="navigate-outline" variante="suave" pequeno
+            onPress={() => Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent([q.hotel_nome, q.hotel_endereco, `${p.cidade} - ${p.uf}`].filter(Boolean).join(', '))}`)} />}
+          {!!q.hotel_telefone && <Botao titulo="Ligar para o hotel" icone="call-outline" variante="suave" pequeno onPress={() => Linking.openURL(`tel:${String(q.hotel_telefone).replace(/[^\d+]/g, '')}`)} />}
+        </View>
+      )}
       <Acoes pode={pedidoAtivo(p) && q.situacao !== 'finalizado' && q.ocupantes.length > 0} ajuste={q.situacao !== 'finalizado' ? ajusteDoQuarto(p, q) : undefined} temQuarto ocupado={ocupado}
         aoAjuste={(tipo) => aoAjuste({ pedido: p, quarto: q, tipo })} aoRetirar={aoRetirar} />
     </Cartao>
@@ -193,6 +202,7 @@ export function Pedido_() {
           {podeEditar && <Botao titulo="Editar" icone="create-outline" variante="contorno" pequeno onPress={() => nav.navigate('hospedagens.Formulario', { id: p.id })} estilo={{ flex: 1 }} />}
           {ativo && !pedidoCancel && <Botao titulo="Cancelar pedido" icone="close-circle-outline" variante="perigo" pequeno onPress={cancelarPedido} desabilitado={ocupado} estilo={{ flex: 1 }} />}
         </View>
+        {p.status !== 'rascunho' && <Botao titulo="Repetir pedido" icone="copy-outline" variante="suave" pequeno onPress={() => nav.navigate('hospedagens.Formulario', { copiar: p.id })} estilo={{ marginTop: 10 }} />}
       </Cartao>
 
       {abertas.length > 0 && (
@@ -222,6 +232,8 @@ export function Pedido_() {
           {reservas.map((q) => <CartaoQuarto key={q.id} p={p} q={q} aoAjuste={setDlg} aoRetirar={retirar} ocupado={retirando} />)}
         </>
       )}
+
+      <FalarComCentral assunto={`o pedido ${p.codigo}`} />
 
       {dlg && <AjusteFolha alvo={dlg} aoFechar={() => setDlg(null)} aoConcluir={() => { setDlg(null); void recarregar(); }} />}
     </Tela>

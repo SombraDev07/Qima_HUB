@@ -1,7 +1,8 @@
 // Telas do núcleo do app: entrar, início (sistemas), sistema sem telas ainda, pendências e perfil.
-import { useCallback, useState } from 'react';
-import { KeyboardAvoidingView, Linking, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useEffect, useState } from 'react';
+import { KeyboardAvoidingView, Linking, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { setStatusBarStyle } from 'expo-status-bar';
 import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import { api, ApiErro, URL_API, type Sistema } from '../api/cliente';
 import { useAuth, VERSAO_APP } from '../auth/AuthContext';
@@ -9,6 +10,12 @@ import { identidadeDe, sistemasApp } from '../sistemas/registro';
 import { medida, useTema } from '../tema';
 import { Aviso, Botao, Campo, Cartao, Chip, Icone, Secao, Tela, Vazio, useAviso, useConfirmar } from '../ui';
 import { useAcao } from '../util/carregar';
+import { useFila } from '../util/fila';
+import { fmtDataHora } from '../util/datas';
+import { useBloqueio } from '../auth/Bloqueio';
+import { FalarComCentral } from '../ui/Contato';
+
+type Aparelho = { id: number; dispositivo: string | null; created_at: string; ultimo_uso: string; atual: boolean };
 import { AZUL_QIMA, MarcaHub, SimboloQ, VERMELHO_QIMA } from '../ui/Marca';
 
 // ------------------------------------------------------------------ Login
@@ -21,6 +28,7 @@ export function Login() {
   const [erro, setErro] = useState('');
   const { executar, ocupado } = useAcao();
 
+  useEffect(() => { setStatusBarStyle(t.fundo === '#f3f6f7' ? 'dark' : 'light'); }, [t.fundo]);
   const enviar = async () => {
     setErro('');
     if (!email.trim() || !senha) { setErro('Informe o e-mail e a senha.'); return; }
@@ -120,7 +128,7 @@ export function Inicio() {
     setAtualizando(true); setErro('');
     try { await recarregar(); } catch (x) { setErro(x instanceof ApiErro ? x.message : 'Não foi possível atualizar.'); } finally { setAtualizando(false); }
   }, [recarregar]);
-  useFocusEffect(useCallback(() => { void atualizar(); }, [atualizar]));
+  useFocusEffect(useCallback(() => { void atualizar(); setStatusBarStyle(t.fundo === '#f3f6f7' ? 'dark' : 'light'); }, [atualizar, t.fundo]));
 
   const abrir = (s: Sistema) => { const d = sistemasApp[s.key]; nav.navigate(d ? `${s.key}.${d.inicial}` : 'SistemaVazio', { chave: s.key }); };
   return (
@@ -203,7 +211,7 @@ export function PedidosTela() {
   const { pendencias, recarregar } = useAuth();
   const [atualizando, setAtualizando] = useState(false);
   const atualizar = useCallback(async () => { setAtualizando(true); try { await recarregar(); } catch { /* mantém o que já tem */ } finally { setAtualizando(false); } }, [recarregar]);
-  useFocusEffect(useCallback(() => { void atualizar(); }, [atualizar]));
+  useFocusEffect(useCallback(() => { void atualizar(); setStatusBarStyle('light'); }, [atualizar]));
   const itens = pendencias.filter((i) => i.qtd > 0 && !i.central);
   return (
     <View style={{ flex: 1, backgroundColor: t.marca }}>
@@ -254,6 +262,28 @@ export function PerfilTela() {
     const r = await executar(() => sairDeTodos());
     if (!r.ok) avisar(r.erro, 'erro');
   };
+  const fila = useFila();
+  const sairDaqui = async () => {
+    if (fila.length && !await confirmar({ titulo: `${fila.length} foto(s) ainda não enviada(s)`, mensagem: 'Ao sair, as fotos que estão esperando internet são apagadas deste celular.', confirmar: 'Sair assim mesmo', perigo: true })) return;
+    await sair();
+  };
+
+  // aparelhos com o app conectado
+  const [aparelhos, setAparelhos] = useState<Aparelho[] | null>(null);
+  const carregarAparelhos = useCallback(() => { api<Aparelho[]>('/api/auth/app/aparelhos').then(setAparelhos).catch(() => setAparelhos([])); }, []);
+  useFocusEffect(useCallback(() => { carregarAparelhos(); setStatusBarStyle('light'); }, [carregarAparelhos]));
+  const desconectar = async (x: Aparelho) => {
+    if (!await confirmar({ titulo: `Desconectar ${x.dispositivo || 'este aparelho'}?`, mensagem: 'O app nesse celular volta para a tela de entrar.', confirmar: 'Desconectar', perigo: true })) return;
+    const r = await executar(() => api(`/api/auth/app/aparelhos/${x.id}`, { metodo: 'DELETE' }));
+    if (!r.ok) avisar(r.erro, 'erro'); else { avisar('Aparelho desconectado'); carregarAparelhos(); }
+  };
+
+  // bloqueio por digital / PIN
+  const bloq = useBloqueio();
+  const trocarBloqueio = async () => {
+    const ok = await bloq.ligar(!bloq.ligado);
+    if (ok) avisar(bloq.ligado ? 'Bloqueio desligado' : 'Bloqueio ligado: o app pede a digital ou o PIN ao abrir');
+  };
 
   return (
     <View style={{ flex: 1, backgroundColor: t.marca }}>
@@ -263,13 +293,40 @@ export function PerfilTela() {
           <View style={{ flex: 1 }}><Text style={{ color: '#fff', fontSize: 20, fontWeight: '800' }} numberOfLines={1}>{usuario?.name}</Text><Text style={{ color: '#b9cbd3', fontSize: 14 }} numberOfLines={1}>{usuario?.email}</Text></View>
         </View>
         <ScrollView style={{ backgroundColor: t.fundo, borderTopLeftRadius: 26, borderTopRightRadius: 26 }} contentContainerStyle={{ padding: medida.gutter, paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
+          {fila.length > 0 && <View style={{ marginTop: 16 }}><Aviso tipo="info" texto={`${fila.length} foto(s) do Frotas esperando internet. Elas sobem sozinhas quando o sinal voltar.`} /></View>}
+
+          <Secao titulo="Segurança" />
+          <Cartao>
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: t.texto, fontWeight: '800' }}>Bloquear com digital ou PIN</Text>
+                <Text style={{ color: t.suave, fontSize: 13 }}>{bloq.disponivel ? 'Pede a digital, o rosto ou o PIN do celular ao abrir o app.' : 'Este celular não tem digital nem PIN configurados.'}</Text>
+              </View>
+              <Switch value={bloq.ligado} onValueChange={() => { void trocarBloqueio(); }} disabled={!bloq.disponivel} />
+            </View>
+          </Cartao>
+
+          <Secao titulo="Aparelhos conectados" />
+          {aparelhos === null ? <Text style={{ color: t.suave }}>Carregando…</Text> : aparelhos.map((x) => (
+            <Cartao key={x.id} estilo={{ marginBottom: 8, flexDirection: 'row', alignItems: 'center' }}>
+              <Icone nome="phone-portrait-outline" tamanho={22} cor={t.suave} />
+              <View style={{ flex: 1, marginLeft: 10 }}>
+                <Text style={{ color: t.texto, fontWeight: '700' }}>{x.dispositivo || 'Celular'}{x.atual ? ' · este aparelho' : ''}</Text>
+                <Text style={{ color: t.suave, fontSize: 12.5 }}>Entrou em {fmtDataHora(x.created_at)} · último uso {fmtDataHora(x.ultimo_uso)}</Text>
+              </View>
+              {!x.atual && <Botao titulo="Desconectar" variante="perigo" pequeno onPress={() => desconectar(x)} desabilitado={ocupado} />}
+            </Cartao>
+          ))}
+
+          <FalarComCentral />
+
           <Secao titulo="Trocar senha" />
           {!!erro && <Aviso texto={erro} />}
           <Campo rotulo="Senha atual" value={atual} onChangeText={setAtual} secureTextEntry autoComplete="current-password" />
           <Campo rotulo="Nova senha" dica="Mínimo de 8 caracteres" value={nova} onChangeText={setNova} secureTextEntry autoComplete="new-password" />
           <Botao titulo="Trocar senha" variante="contorno" onPress={trocar} carregando={ocupado} />
           <Secao titulo="Sessão" />
-          <Botao titulo="Sair" icone="log-out-outline" onPress={sair} />
+          <Botao titulo="Sair" icone="log-out-outline" onPress={sairDaqui} />
           <Botao titulo="Sair de todos os aparelhos" variante="perigo" onPress={sairTodos} estilo={{ marginTop: 12 }} />
           <Text style={{ color: t.suave, fontSize: 12, textAlign: 'center', marginTop: 26 }}>QIMA HUB · versão {VERSAO_APP}{'\n'}{URL_API}</Text>
         </ScrollView>

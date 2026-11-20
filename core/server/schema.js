@@ -1,8 +1,8 @@
-﻿// Tabelas do núcleo (core) no Postgres. Cada sistema cria as suas próprias, com prefixo "<chave>_".
+// Tabelas do núcleo (core) no Postgres. Cada sistema cria as suas próprias, com prefixo "<chave>_".
 // Roda na partida do servidor (desenvolvimento) ou com "npm run migrate" (produção/Vercel).
 import { pg } from './pg.js';
 
-const TABELAS = ['users', 'sessions', 'modules', 'user_modules', 'outbox', 'settings', 'ai_uso', 'module_migrations', 'auth_limites', 'password_resets', 'audit_log', 'app_tokens'];
+const TABELAS = ['users', 'sessions', 'modules', 'user_modules', 'outbox', 'settings', 'ai_uso', 'module_migrations', 'auth_limites', 'password_resets', 'audit_log', 'app_tokens', 'app_push'];
 
 const SQL = `
 CREATE TABLE IF NOT EXISTS users (
@@ -106,6 +106,16 @@ CREATE TABLE IF NOT EXISTS app_tokens (
   expira_em   TIMESTAMPTZ NOT NULL
 );
 CREATE INDEX IF NOT EXISTS app_tokens_user ON app_tokens (user_id);
+
+-- Endereço de notificação (push) de cada aparelho logado no app; some junto com o login do aparelho
+CREATE TABLE IF NOT EXISTS app_push (
+  id         SERIAL PRIMARY KEY,
+  user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  token_id   INTEGER NOT NULL UNIQUE REFERENCES app_tokens(id) ON DELETE CASCADE,
+  push_token TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS app_push_user ON app_push (user_id);
 
 -- Trilha de auditoria: logins bloqueados, trocas de senha, mudanças de contas e perfis
 CREATE TABLE IF NOT EXISTS audit_log (

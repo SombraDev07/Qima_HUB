@@ -2,10 +2,11 @@ import { useEffect, useState } from 'react';
 import { View } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { api } from '../../api/cliente';
-import { Aviso, Botao, Campo, CampoData, CampoSelecao, Carregando, Secao, Tela, useAviso, useConfirmar } from '../../ui';
+import { Aviso, Botao, Campo, CampoData, CampoSelecao, Carregando, Secao, Tela, useAviso, useConfirmar, AvisoRascunho } from '../../ui';
 import { CampoCidade, UFS, cidadeOficial } from '../../ui/CampoCidade';
 import { useAcao } from '../../util/carregar';
 import { hoje } from '../../util/datas';
+import { useRascunhoLocal } from '../../util/rascunho';
 import type { Config, Pedido } from './tipos';
 
 const M = '/api/m/contratacao';
@@ -21,6 +22,7 @@ export function Formulario() {
   const [erroCidade, setErroCidade] = useState('');
   const [f, setF] = useState({ projeto: '', funcao: '', cidade: '', uf: 'PR', data_desejada: hoje(), observacao: '', experiencia: false, cnh: false, movel: false, qtd: '1' });
   const set = <K extends keyof typeof f>(k: K, v: (typeof f)[K]) => setF((x) => ({ ...x, [k]: v }));
+  const rasc = useRascunhoLocal('contratacao-novo', f, setF, !id);
 
   useEffect(() => {
     api<Config>(`${M}/config`).then((c) => { setCfg(c); setF((x) => ({ ...x, projeto: x.projeto || c.projetos[0], funcao: x.funcao || c.funcoes[0] })); }).catch((x) => setErro(x.message));
@@ -38,6 +40,7 @@ export function Formulario() {
     const corpo = { ...f, qtd: Number(f.qtd) || 0, cidade: f.cidade ? cidadeOficial(f.cidade, f.uf) : '', rascunho };
     const r = await executar(() => (id ? api<{ codigo: string }>(`${M}/meus/${id}`, { metodo: 'PUT', corpo }) : api<{ codigo: string }>(`${M}/meus`, { metodo: 'POST', corpo })));
     if (!r.ok) { setErro(r.erro); return; }
+    rasc.limpar();
     avisar(rascunho ? `Rascunho salvo · ${r.valor.codigo}` : `Solicitação enviada · ${r.valor.codigo}`); nav.goBack();
   };
 
@@ -47,12 +50,13 @@ export function Formulario() {
     <CampoSelecao rotulo={r} valor={f[k] ? 'sim' : 'nao'} opcoes={[{ valor: 'sim', rotulo: 'Sim' }, { valor: 'nao', rotulo: 'Não' }]} aoMudar={(v) => set(k, v === 'sim')} />
   );
   const sair = async () => {
-    if (await confirmar({ titulo: 'Cancelar esta solicitação?', mensagem: 'O que foi preenchido e não salvo será perdido.', confirmar: 'Sim, cancelar', cancelar: 'Continuar editando', perigo: true })) nav.goBack();
+    if (await confirmar({ titulo: 'Cancelar esta solicitação?', mensagem: 'O que foi preenchido e não salvo será perdido.', confirmar: 'Sim, cancelar', cancelar: 'Continuar editando', perigo: true })) { rasc.limpar(); nav.goBack(); }
   };
   return (
     <Tela titulo={id ? 'Continuar rascunho' : 'Nova vaga'} subtitulo="Contratação" aoVoltar={sair}
       rodape={<><Botao titulo="Cancelar" variante="suave" onPress={sair} desabilitado={ocupado} estilo={{ flex: 1 }} /><Botao titulo="Rascunho" variante="contorno" onPress={() => salvar(true)} desabilitado={ocupado} estilo={{ flex: 1 }} /><Botao titulo="Enviar" icone="send" onPress={() => salvar(false)} carregando={ocupado} estilo={{ flex: 1.2 }} /></>}>
       {!!erro && <Aviso texto={erro} />}
+      <AvisoRascunho restaurado={rasc.restaurado} aoDescartar={rasc.descartar} />
       <CampoSelecao rotulo="Operação / Projeto" valor={f.projeto} opcoes={(cfg?.projetos ?? []).map((p) => ({ valor: p, rotulo: p }))} aoMudar={(v) => set('projeto', v)} />
       <CampoSelecao rotulo="Função" valor={f.funcao} opcoes={(cfg?.funcoes ?? []).map((p) => ({ valor: p, rotulo: p }))} aoMudar={(v) => set('funcao', v)} />
       <CampoSelecao rotulo="Estado" valor={f.uf} opcoes={UFS.map((u) => ({ valor: u, rotulo: u }))} aoMudar={(u) => setF((x) => ({ ...x, uf: u, cidade: cidadeOficial(x.cidade, u) ? x.cidade : '' }))} />

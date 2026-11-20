@@ -1,4 +1,4 @@
-﻿import express from 'express';
+import express from 'express';
 import fs from 'node:fs';
 import crypto from 'node:crypto';
 import path from 'node:path';
@@ -7,7 +7,7 @@ import { pg } from './pg.js';
 import { migrarNucleo } from './schema.js';
 import {
   a, loadUser, requireAuth, requireAdmin, createSession, destroySession,
-  verifyPasswordAsync, gastarTempoDeSenha, encerrarSessoes, criarTokenApp, revogarTokenApp, hashPassword, cleanExpiredSessions,
+  verifyPasswordAsync, gastarTempoDeSenha, encerrarSessoes, criarTokenApp, revogarTokenApp, aparelhosDoUsuario, desconectarAparelho, hashPassword, cleanExpiredSessions,
 } from './auth.js';
 import {
   ipDe, semCache, cabecalhosSeguros, verificarOrigem, limitePorIp, bloqueio, contar, zerar, limparLimites, REGRAS, chavesLogin,
@@ -16,6 +16,7 @@ import {
 import { loadModules, moduleSummary, moduleNotificacoes, registry } from './moduleLoader.js';
 import { adminRouter } from './admin.js';
 import { relatorioDoSistemaRouter, relatoriosDaCentralRouter } from './relatorios.js';
+import { registrarPush, removerPush, contatoCentral, salvarContatoCentral } from './lib/app.js';
 import { aiIniciar } from './lib/ai.js';
 
 const portArg = process.argv.find((x) => x.startsWith('--port='));
@@ -87,6 +88,24 @@ app.post('/api/auth/app/logout-all', requireAuth, a(async (req, res) => {
   await auditar('app_logout_todos', { usuario: req.user, ip: ipDe(req) });
   res.json({ ok: true });
 }));
+
+// Aparelhos com o app conectado: a própria pessoa vê e desconecta um por um
+app.get('/api/auth/app/aparelhos', requireAuth, a(async (req, res) => {
+  const lista = await aparelhosDoUsuario(req.user.id);
+  res.json(lista.map((x) => ({ ...x, atual: x.id === req.appTokenId })));
+}));
+app.delete('/api/auth/app/aparelhos/:id', requireAuth, a(async (req, res) => {
+  await desconectarAparelho(req.user.id, req.params.id);
+  await auditar('app_aparelho_desconectado', { usuario: req.user, ip: ipDe(req), detalhe: String(req.params.id) });
+  res.json({ ok: true });
+}));
+
+// Notificações no celular: o app registra o endereço de push do aparelho (só com o login do app)
+const soApp = (req, res, next) => (req.appTokenId ? next() : res.status(403).json({ error: 'Só pelo app de celular.' }));
+app.post('/api/app/push', requireAuth, soApp, a(async (req, res) => { await registrarPush(req.user.id, req.appTokenId, req.body?.token); res.json({ ok: true }); }));
+app.delete('/api/app/push', requireAuth, soApp, a(async (req, res) => { await removerPush(req.appTokenId); res.json({ ok: true }); }));
+// Contato da central (definido em Administração → App), mostrado no app
+app.get('/api/app/contato', requireAuth, a(async (_req, res) => res.json(await contatoCentral())));
 
 // Versão mínima do app aceita (para forçar atualização se algo mudar de forma incompatível) e aviso de manutenção
 app.get('/api/app/versao', (_req, res) => res.json({
@@ -212,12 +231,15 @@ app.post('/api/me/password', requireAuth, a(async (req, res) => {
   res.json({ ok: true });
 }));
 
-app.use('/api/admin', requireAuth, requireAdmin, adminRouter());
+// Telas só do site: o login do app (lado Solicitante) não entra em Administração nem em relatórios
+const semApp = (req, res, next) => (req.appTokenId ? res.status(403).json({ error: 'Disponível só no site.' }) : next());
+app.use('/api/admin', requireAuth, semApp, requireAdmin, adminRouter());
 
 // ---------- Sistemas ----------
 // relatório do próprio sistema, para quem é da Central dele (antes das rotas dos sistemas)
+app.use('/api/m/:key/relatorio.xlsx', semApp);
 app.use('/api/m', relatorioDoSistemaRouter());
-app.use('/api/relatorios', relatoriosDaCentralRouter());
+app.use('/api/relatorios', semApp, relatoriosDaCentralRouter());
 await loadModules(app, { migrar: !SERVERLESS });
 await aiIniciar();
 
@@ -244,6 +266,8 @@ if (!SERVERLESS && fs.existsSync(dist)) {
 }
 
 app.use((err, _req, res, _next) => {
+  // erros de entrada marcados como "expose" (ex.: dado inválido) voltam com a mensagem; o resto vira "Erro interno"
+  if (err?.expose && err.status >= 400 && err.status < 500) { if (!res.headersSent) res.status(err.status).json({ error: err.message }); return; }
   console.error(err);
   if (!res.headersSent) res.status(500).json({ error: 'Erro interno' });
 });

@@ -7,6 +7,7 @@ import express from 'express';
 import { dataDir } from './db.js';
 import { pg } from './pg.js';
 import { requireAuth, hasRole, a } from './auth.js';
+import { pushPorEmail } from './lib/app.js';
 import { contar } from './lib/seguranca.js';
 import { createZip } from './lib/zip.js';
 import { buildXlsx } from './lib/xlsx.js';
@@ -72,6 +73,8 @@ function makeContext(key) {
       const email = String(to || '').trim();
       if (!email) return false;
       await t.run('INSERT INTO outbox (module_key, to_email, subject, html) VALUES (?, ?, ?, ?)', key, email, subject, html);
+      // o mesmo aviso vai como notificação para o celular de quem usa o app (fora da transação, sem travar a rota)
+      setImmediate(() => { pushPorEmail(email, subject, html, { modulo: key }).catch(() => {}); });
       return true;
     },
   };
@@ -98,7 +101,8 @@ export async function loadModules(app, { migrar = true } = {}) {
           if (!mod?.enabled || mod.status !== 'ativo') return res.status(503).json({ error: 'Sistema indisponível' });
           if (!mod.role) return res.status(403).json({ error: 'Sem acesso a este sistema' });
           if (mod.role === 'rtv') return res.status(403).json({ error: 'O perfil RTV ainda não tem acesso a este sistema.' });
-          req.moduleRole = mod.role;
+          // pelo app de celular a pessoa age só como Solicitante, mesmo que no site seja Central
+          req.moduleRole = req.appTokenId && ['central', 'ambos'].includes(mod.role) ? 'solicitante' : mod.role;
           next();
         }));
         const ctx = makeContext(name);

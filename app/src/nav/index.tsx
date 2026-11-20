@@ -2,7 +2,9 @@
 // Cada sistema registra as próprias telas como "<sistema>.<Tela>" na pilha do Início.
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { DarkTheme, DefaultTheme, NavigationContainer } from '@react-navigation/native';
+import { DarkTheme, DefaultTheme, NavigationContainer, createNavigationContainerRef } from '@react-navigation/native';
+import { useEffect } from 'react';
+import { ouvirToques } from '../auth/push';
 import { useColorScheme } from 'react-native';
 import { useAuth } from '../auth/AuthContext';
 import { sistemasApp } from '../sistemas/registro';
@@ -11,6 +13,7 @@ import { Carregando, Icone, Vazio } from '../ui';
 import { Inicio, Login, PedidosTela, PerfilTela, SistemaVazio } from '../telas';
 
 const Pilha = createNativeStackNavigator();
+const navRef = createNavigationContainerRef<any>();
 const Abas = createBottomTabNavigator();
 
 function InicioPilha() {
@@ -43,10 +46,15 @@ function Principal() {
 export function Navegacao() {
   const { carregando, usuario, bloqueio } = useAuth();
   const esquema = useColorScheme();
+  // tocar numa notificação abre a tela inicial do sistema do aviso
+  useEffect(() => ouvirToques((modulo) => {
+    const d = sistemasApp[modulo];
+    if (navRef.isReady()) navRef.navigate('InicioAba', { screen: d ? `${modulo}.${d.inicial}` : 'SistemaVazio', params: { chave: modulo } });
+  }), []);
   if (carregando) return <Carregando />;
   if (bloqueio) return <Vazio icone="construct-outline" titulo="App indisponível" texto={bloqueio} />;
   return (
-    <NavigationContainer theme={esquema === 'dark' ? DarkTheme : DefaultTheme}>
+    <NavigationContainer ref={navRef} theme={esquema === 'dark' ? DarkTheme : DefaultTheme}>
       {usuario ? <Principal /> : <Login />}
     </NavigationContainer>
   );

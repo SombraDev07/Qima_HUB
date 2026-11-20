@@ -7,6 +7,8 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import { setStatusBarStyle } from 'expo-status-bar';
+import { useFocusEffect } from '@react-navigation/native';
 import { medida, useTema, type Tema } from '../tema';
 import { fmtData, paraIso } from '../util/datas';
 
@@ -40,6 +42,7 @@ export function Tela({ titulo, subtitulo, aoVoltar, direita, children, rodape, a
   aoAtualizar?: () => void; atualizando?: boolean; semRolagem?: boolean;
 }) {
   const t = useTema();
+  useFocusEffect(useCallback(() => { setStatusBarStyle('light'); }, []));
   const corpo = semRolagem ? <View style={{ flex: 1 }}>{children}</View> : (
     <ScrollView contentContainerStyle={{ padding: medida.gutter, paddingBottom: 32 }} keyboardShouldPersistTaps="handled"
       refreshControl={aoAtualizar ? <RefreshControl refreshing={atualizando} onRefresh={aoAtualizar} /> : undefined}>
@@ -402,3 +405,16 @@ const e = StyleSheet.create({
   folha: { borderTopLeftRadius: 22, borderTopRightRadius: 22, paddingBottom: 8 },
   toast: { position: 'absolute', left: 20, right: 20, bottom: 96, borderRadius: 14, paddingVertical: 12, paddingHorizontal: 16, elevation: 8 },
 });
+
+/** Aviso de rascunho recuperado (o formulário voltou com o que foi digitado antes). */
+export function AvisoRascunho({ restaurado, aoDescartar }: { restaurado: boolean; aoDescartar: () => void }) {
+  const t = useTema();
+  if (!restaurado) return null;
+  return (
+    <View style={{ backgroundColor: t.infoFundo, borderRadius: 12, padding: 12, marginBottom: 14, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+      <Ionicons name="document-text-outline" size={20} color={t.info} />
+      <Text style={{ color: t.info, flex: 1, fontSize: 14 }}>Recuperamos o que você tinha preenchido.</Text>
+      <Pressable accessibilityRole="button" onPress={aoDescartar} hitSlop={8}><Text style={{ color: t.info, fontWeight: '800' }}>Começar do zero</Text></Pressable>
+    </View>
+  );
+}

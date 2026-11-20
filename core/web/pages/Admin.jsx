@@ -8,6 +8,7 @@ import { ModuleIcon } from '../shared/icons.jsx';
 import { useConfirm } from '../shared/dialogo.jsx';
 import Relatorios from './admin/Relatorios.jsx';
 import IA from './admin/IA.jsx';
+import AppCelular from './admin/AppCelular.jsx';
 import './admin/admin.css';
 
 const ROLE_LABEL = { solicitante: 'Solicitante', central: 'Central', ambos: 'Solicitante + Central', rtv: 'RTV' };
@@ -347,12 +348,14 @@ export default function Admin() {
         <button className={tab === 'modules' ? 'active' : ''} onClick={() => setTab('modules')}>Sistemas</button>
         <button className={tab === 'relatorios' ? 'active' : ''} onClick={() => setTab('relatorios')}>Relatórios</button>
         <button className={tab === 'ia' ? 'active' : ''} onClick={() => setTab('ia')}>Inteligência artificial</button>
+        <button className={tab === 'app' ? 'active' : ''} onClick={() => setTab('app')}>App</button>
         <button className={tab === 'auditoria' ? 'active' : ''} onClick={() => setTab('auditoria')}>Segurança</button>
       </div>
       {tab === 'users' && <UsersTab modules={modules} />}
       {tab === 'modules' && <ModulesTab modules={modules} reload={loadModules} />}
       {tab === 'relatorios' && <Relatorios />}
       {tab === 'ia' && <IA />}
+      {tab === 'app' && <AppCelular />}
       {tab === 'auditoria' && <AuditoriaTab />}
     </>
   );

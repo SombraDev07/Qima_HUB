@@ -171,4 +171,14 @@ export default [
       `);
     },
   },
+  {
+    // Fotos do carro sem GPS passam a ser aceitas (o carimbo diz "Sem GPS").
+    version: 4,
+    async up(db) {
+      await db.exec(`
+        ALTER TABLE frotas_fotos ALTER COLUMN lat DROP NOT NULL;
+        ALTER TABLE frotas_fotos ALTER COLUMN lon DROP NOT NULL;
+      `);
+    },
+  },
 ];

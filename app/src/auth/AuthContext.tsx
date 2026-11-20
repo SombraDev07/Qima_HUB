@@ -4,6 +4,11 @@ import Constants from 'expo-constants';
 import * as Device from 'expo-device';
 import { api, definirToken, registrarAoExpirar, type Eu, type LoginApp, type Pendencia, type Pendencias, type Sistema, type Versao } from '../api/cliente';
 import { apagarToken, guardarToken, lerToken } from './armazenamento';
+import { desligarBloqueio } from './Bloqueio';
+import { registrarPush, removerPush } from './push';
+import { limparTudo } from '../util/armazem';
+import { esvaziarFila, iniciarFila } from '../util/fila';
+import { limparFotosEmMemoria } from '../ui/FotoAut';
 
 export const VERSAO_APP = Constants.expoConfig?.version ?? '1.0.0';
 
@@ -44,9 +49,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [pendencias, setPendencias] = useState<Pendencia[]>([]);
   const [bloqueio, setBloqueio] = useState<string | null>(null);
 
-  const limpar = useCallback(async () => {
+  /** apagarDados = saída pedida pela pessoa: some também com rascunhos, fila de fotos, imagens e o bloqueio. */
+  const limpar = useCallback(async (apagarDados = false) => {
     definirToken(null);
     await apagarToken();
+    limparFotosEmMemoria();
+    if (apagarDados) { esvaziarFila(); limparTudo(); await desligarBloqueio(); }
     setUsuario(null);
     setSistemas([]);
     setPendencias([]);
@@ -60,7 +68,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    registrarAoExpirar(() => { void limpar(); }); // token vencido ou revogado: volta para o login
+    registrarAoExpirar(() => { void limpar(); }); // token vencido ou revogado: volta para o login (a fila de fotos fica para quando entrar de novo)
     return () => registrarAoExpirar(null);
   }, [limpar]);
 
@@ -85,14 +93,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [recarregar]);
 
   const sair = useCallback(async () => {
+    await removerPush();
     try { await api('/api/auth/app/logout', { metodo: 'POST', corpo: {} }); } catch { /* sem rede: sai assim mesmo */ }
-    await limpar();
+    await limpar(true);
   }, [limpar]);
 
   const sairDeTodos = useCallback(async () => {
     await api('/api/auth/app/logout-all', { metodo: 'POST', corpo: {} });
-    await limpar();
+    await limpar(true);
   }, [limpar]);
+
+  // logado: registra o aparelho para notificações e liga a fila de fotos sem sinal
+  const logado = !!usuario;
+  useEffect(() => {
+    if (!logado) return undefined;
+    void registrarPush();
+    return iniciarFila();
+  }, [logado]);
 
   const totalPendencias = useMemo(() => pendencias.reduce((s, p) => s + p.qtd, 0), [pendencias]);
   const valor = useMemo(() => ({ carregando, usuario, sistemas, pendencias, totalPendencias, bloqueio, entrar, sair, sairDeTodos, recarregar }), [carregando, usuario, sistemas, pendencias, totalPendencias, bloqueio, entrar, sair, sairDeTodos, recarregar]);

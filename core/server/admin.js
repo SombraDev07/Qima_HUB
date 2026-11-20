@@ -1,9 +1,10 @@
-﻿import express from 'express';
+import express from 'express';
 import { pg } from './pg.js';
 import { a, hashPassword, encerrarSessoes } from './auth.js';
 import { auditar, desbloquearEmail, hashToken, ipDe, novoToken, urlBase, validarSenha } from './lib/seguranca.js';
 import { registry, versoesDoBanco } from './moduleLoader.js';
 import { aiCarregar, aiConfigPublica, aiSalvar, aiTestar, aiUso } from './lib/ai.js';
+import { contatoCentral, salvarContatoCentral } from './lib/app.js';
 import { ErroRelatorio, enviarExcel, gerarExcel, sistemasComRelatorio } from './relatorios.js';
 
 // 'rtv' existe como perfil, mas ainda não dá acesso a nenhuma tela (ver moduleLoader.js).
@@ -150,6 +151,14 @@ export function adminRouter() {
   const sistemasIA = () => [...registry.values()].filter(({ manifest, error }) => manifest.ia && !error)
     .map(({ manifest }) => ({ key: manifest.key, title: manifest.title, icon: manifest.icon, uso: manifest.ia }));
   const telaIA = async () => ({ ...aiConfigPublica(), sistemas_ia: sistemasIA(), uso: await aiUso() });
+
+  // Contato da central mostrado no app de celular
+  r.get('/app', a(async (_req, res) => res.json(await contatoCentral())));
+  r.put('/app', a(async (req, res) => {
+    const c = await salvarContatoCentral(req.body || {}, req.user);
+    await auditar('app_contato_alterado', { usuario: req.user, ip: ipDe(req) });
+    res.json(c);
+  }));
 
   r.get('/ia', a(async (_req, res) => { await aiCarregar(); res.json(await telaIA()); }));
 
