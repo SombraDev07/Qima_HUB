@@ -10,7 +10,7 @@
     "android": {
       "package": "br.com.qima.hub",
       "adaptiveIcon": {
-        "backgroundColor": "#0c303e",
+        "backgroundColor": "#ffffff",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
