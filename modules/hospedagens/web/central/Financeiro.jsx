@@ -18,7 +18,7 @@ function StatusPedido({ api, q, onChange }) {
   const fin = q.pedido_status === 'finalizado';
   const trocar = async () => {
     const ok = await confirmar(fin
-      ? { titulo: `Voltar ${q.pedido_codigo} para Em andamento?`, mensagem: 'O solicitante volta a poder pedir prorrogação, check-out e cancelamento.', confirmar: 'Voltar para Em andamento' }
+      ? { titulo: `Voltar ${q.pedido_codigo} para Em andamento?`, mensagem: 'O solicitante volta a poder pedir prorrogação, check-out e cancelamento. Obs.: com o extrato de todos os quartos Finalizado, o pedido finaliza de novo ao salvar o financeiro.', confirmar: 'Voltar para Em andamento' }
       : { titulo: `Finalizar o pedido ${q.pedido_codigo}?`, mensagem: 'O pedido inteiro fica Finalizado e o solicitante não consegue mais prorrogar, fazer check-out ou cancelar. Dá para voltar depois.', confirmar: 'Finalizar pedido' });
     if (!ok) return;
     if (await run(() => api.post(`/central/pedidos/${q.pedido_id}/${fin ? 'reabrir' : 'finalizar'}`), fin ? 'Pedido de volta para Em andamento' : 'Pedido finalizado')) onChange();
@@ -223,7 +223,7 @@ export default function Financeiro({ module, api }) {
 
   return (
     <>
-      <PageHeader title="Financeiro" subtitle="Cada linha é um trecho de quarto (check-outs parciais geram novos trechos)" back={base}
+      <PageHeader title="Financeiro" subtitle="Cada linha é um trecho de quarto (check-outs parciais geram novos trechos). Com o extrato de todos os quartos Finalizado, o pedido finaliza sozinho." back={base}
         actions={<Button variant="outline" onClick={exportar} disabled={!filtrados.length}><Download size={16} /> Exportar Excel</Button>} />
       <Alert>{erro}</Alert>
       <Card className="hs-filtros-card">

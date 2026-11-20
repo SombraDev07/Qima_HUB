@@ -186,4 +186,16 @@ export default [
       `);
     },
   },
+  {
+    // Regra nova: extrato de todos os quartos Finalizado => pedido Finalizado. Acerta os pedidos que já estavam assim.
+    version: 5,
+    async up(db) {
+      await db.exec(`
+        UPDATE hospedagens_pedidos p SET status = 'finalizado', updated_at = now()
+        WHERE p.status = 'em_andamento'
+          AND EXISTS (SELECT 1 FROM hospedagens_quartos q WHERE q.pedido_id = p.id)
+          AND NOT EXISTS (SELECT 1 FROM hospedagens_quartos q WHERE q.pedido_id = p.id AND q.fin_extrato_status <> 'Finalizado');
+      `);
+    },
+  },
 ];

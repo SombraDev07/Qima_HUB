@@ -598,6 +598,20 @@ export default {
       d(b.fin_dt_abertura), d(b.fin_dt_nf), b.fin_nf || null, d(b.fin_vencimento),
       PAG_ST.includes(b.fin_status_pg) ? b.fin_status_pg : 'Pendente', b.fin_obs || null, q.id);
       await log(t, q.pedido_id, req.user, 'Financeiro atualizado', q.codigo);
+      // Extrato de todos os quartos Finalizado => o pedido finaliza (trava o solicitante).
+      // Se um quarto sai de Finalizado, o pedido volta para Em andamento.
+      const ped = await t.get(`SELECT p.status,
+          (SELECT COUNT(*) FROM hospedagens_quartos x WHERE x.pedido_id = p.id) AS quartos,
+          (SELECT COUNT(*) FROM hospedagens_quartos x WHERE x.pedido_id = p.id AND x.fin_extrato_status <> 'Finalizado') AS abertos
+        FROM hospedagens_pedidos p WHERE p.id = ?`, q.pedido_id);
+      const tudo = Number(ped.quartos) > 0 && Number(ped.abertos) === 0;
+      if (tudo && ped.status === 'em_andamento') {
+        await t.run("UPDATE hospedagens_pedidos SET status = 'finalizado', updated_at = now() WHERE id = ?", q.pedido_id);
+        await log(t, q.pedido_id, req.user, 'Pedido finalizado', 'Extrato de todos os quartos finalizado');
+      } else if (!tudo && ped.status === 'finalizado' && q.fin_extrato_status === 'Finalizado' && st !== 'Finalizado') {
+        await t.run("UPDATE hospedagens_pedidos SET status = 'em_andamento', updated_at = now() WHERE id = ?", q.pedido_id);
+        await log(t, q.pedido_id, req.user, 'Pedido reaberto', `Extrato do quarto ${q.codigo} saiu de Finalizado`);
+      }
       return quartoView(t, q.id);
     }));
 
