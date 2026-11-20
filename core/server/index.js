@@ -1,4 +1,4 @@
-import express from 'express';
+﻿import express from 'express';
 import fs from 'node:fs';
 import crypto from 'node:crypto';
 import path from 'node:path';
@@ -7,7 +7,7 @@ import { pg } from './pg.js';
 import { migrarNucleo } from './schema.js';
 import {
   a, loadUser, requireAuth, requireAdmin, createSession, destroySession,
-  verifyPasswordAsync, gastarTempoDeSenha, encerrarSessoes, hashPassword, cleanExpiredSessions,
+  verifyPasswordAsync, gastarTempoDeSenha, encerrarSessoes, criarTokenApp, revogarTokenApp, hashPassword, cleanExpiredSessions,
 } from './auth.js';
 import {
   ipDe, semCache, cabecalhosSeguros, verificarOrigem, limitePorIp, bloqueio, contar, zerar, limparLimites, REGRAS, chavesLogin,
@@ -43,25 +43,55 @@ const aguarde = (res, min) => {
   return res.status(429).json({ error: `Muitas tentativas. Tente novamente em ${min} minuto${min > 1 ? 's' : ''}.` });
 };
 
-app.post('/api/auth/login', a(async (req, res) => {
+/** Confere e-mail e senha com limite de tentativas. Devolve o id da pessoa, ou null depois de já ter respondido o erro. */
+async function autenticar(req, res) {
   const email = String(req.body?.email || '').trim().toLowerCase().slice(0, 254);
   const password = String(req.body?.password || '');
   const ip = ipDe(req);
   const chaves = chavesLogin(email, ip);
   const espera = await bloqueio(chaves);
-  if (espera) { await auditar('login_bloqueado', { email, ip }); return aguarde(res, espera); }
+  if (espera) { await auditar('login_bloqueado', { email, ip }); aguarde(res, espera); return null; }
   const user = password.length <= 128 ? await pg.get('SELECT id, password_hash, active FROM users WHERE lower(email) = ?', email) : null;
   const certa = user ? await verifyPasswordAsync(password, user.password_hash) : (await gastarTempoDeSenha(password), false);
   if (!user || !certa) {
     await Promise.all([contar(chaves[0], REGRAS.par), contar(chaves[1], REGRAS.email), contar(chaves[2], REGRAS.ip)]);
     await auditar('login_falhou', { email, ip });
-    return res.status(401).json({ error: 'E-mail ou senha inválidos' });
+    res.status(401).json({ error: 'E-mail ou senha inválidos' });
+    return null;
   }
-  if (!user.active) return res.status(403).json({ error: 'Usuário desativado. Procure a administração.' });
+  if (!user.active) { res.status(403).json({ error: 'Usuário desativado. Procure a administração.' }); return null; }
   await zerar([chaves[0], chaves[1]]);
-  await createSession(res, user.id);
   limparLimites().catch(() => {}); cleanExpiredSessions().catch(() => {}); // faxina barata (na Vercel não há processo em segundo plano)
+  return user.id;
+}
+
+app.post('/api/auth/login', a(async (req, res) => {
+  const uid = await autenticar(req, res);
+  if (!uid) return;
+  await createSession(res, uid);
   res.json({ ok: true });
+}));
+
+// App de celular: troca e-mail e senha por um token (guardado no aparelho). Mesmas proteções do login do site.
+app.post('/api/auth/app/login', a(async (req, res) => {
+  const uid = await autenticar(req, res);
+  if (!uid) return;
+  const t = await criarTokenApp(uid, { dispositivo: req.body?.dispositivo, ip: ipDe(req) });
+  await auditar('app_login', { usuario: { id: uid, email: String(req.body?.email || '').toLowerCase() }, ip: ipDe(req), detalhe: String(req.body?.dispositivo || '').slice(0, 80) });
+  res.json(t);
+}));
+
+app.post('/api/auth/app/logout', requireAuth, a(async (req, res) => { await revogarTokenApp(req); res.json({ ok: true }); }));
+app.post('/api/auth/app/logout-all', requireAuth, a(async (req, res) => {
+  await encerrarSessoes(req.user.id, null);
+  await auditar('app_logout_todos', { usuario: req.user, ip: ipDe(req) });
+  res.json({ ok: true });
+}));
+
+// Versão mínima do app aceita (para forçar atualização se algo mudar de forma incompatível) e aviso de manutenção
+app.get('/api/app/versao', (_req, res) => res.json({
+  minima: (process.env.QIMA_APP_VERSAO_MINIMA || '1.0.0').trim(),
+  manutencao: process.env.QIMA_APP_MANUTENCAO === '1' ? (process.env.QIMA_APP_AVISO || 'Em manutenção. Tente de novo em alguns minutos.') : null,
 }));
 
 // ---------- Recuperação de senha ----------
@@ -105,7 +135,7 @@ app.post('/api/auth/reset', a(async (req, res) => {
   await pg.tx(async (t) => {
     await t.run('UPDATE users SET password_hash = ? WHERE id = ?', hashPassword(senha), rec.user_id);
     await t.run('UPDATE password_resets SET used_at = now() WHERE user_id = ? AND used_at IS NULL', rec.user_id);
-    await t.run('DELETE FROM sessions WHERE user_id = ?', rec.user_id); // quem estava logado (inclusive um invasor) é desconectado
+    await encerrarSessoes(rec.user_id, null, t); // quem estava logado (inclusive um invasor), no site ou no app, é desconectado
     await t.run('DELETE FROM auth_limites WHERE chave = ? OR chave LIKE ?', `email:${rec.email.toLowerCase()}`, `par:${rec.email.toLowerCase()}|%`);
   });
   await auditar('senha_redefinida', { usuario: { id: rec.user_id, email: rec.email }, ip });
@@ -129,6 +159,9 @@ async function sistemasDoUsuario(userId, { soAtivos = false } = {}) {
 }
 
 // ---------- Usuário logado + cards visíveis ----------
+// ?lado=solicitante (app de celular): os resumos e o sininho saem só do lado Solicitante, mesmo para quem é Central
+const ladoApp = (req, papel) => (req.query.lado === 'solicitante' && papel !== 'rtv' ? 'solicitante' : papel);
+
 app.get('/api/me', requireAuth, a(async (req, res) => {
   const rows = await sistemasDoUsuario(req.user.id);
   const modules = await Promise.all(rows.map(async (r) => {
@@ -141,7 +174,7 @@ app.get('/api/me', requireAuth, a(async (req, res) => {
       labels: manifest.labels || { solicitante: 'Solicitar', central: 'Central' },
       status: r.status,
       role: r.role,
-      summary: r.status === 'ativo' && r.role !== 'rtv' ? await moduleSummary(r.key, req.user, r.role) : null,
+      summary: r.status === 'ativo' && r.role !== 'rtv' ? await moduleSummary(r.key, req.user, ladoApp(req, r.role)) : null,
     };
   }));
   res.json({ user: { ...req.user, is_admin: !!req.user.is_admin }, modules });
@@ -153,7 +186,7 @@ app.get('/api/notificacoes', requireAuth, a(async (req, res) => {
   const mods = (await sistemasDoUsuario(req.user.id, { soAtivos: true })).filter((m) => !so || m.key === so);
   const grupos = await Promise.all(mods.map(async (m) => {
     const { manifest } = registry.get(m.key);
-    return (await moduleNotificacoes(m.key, req.user, m.role)).map((n) => ({ ...n, modulo: m.key, modulo_titulo: manifest.title, icone: manifest.icon }));
+    return (await moduleNotificacoes(m.key, req.user, ladoApp(req, m.role))).map((n) => ({ ...n, modulo: m.key, modulo_titulo: manifest.title, icone: manifest.icon }));
   }));
   const itens = grupos.flat();
   res.json({ total: itens.reduce((s, n) => s + n.qtd, 0), itens });

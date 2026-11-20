@@ -2,7 +2,7 @@
 // Roda na partida do servidor (desenvolvimento) ou com "npm run migrate" (produção/Vercel).
 import { pg } from './pg.js';
 
-const TABELAS = ['users', 'sessions', 'modules', 'user_modules', 'outbox', 'settings', 'ai_uso', 'module_migrations', 'auth_limites', 'password_resets', 'audit_log'];
+const TABELAS = ['users', 'sessions', 'modules', 'user_modules', 'outbox', 'settings', 'ai_uso', 'module_migrations', 'auth_limites', 'password_resets', 'audit_log', 'app_tokens'];
 
 const SQL = `
 CREATE TABLE IF NOT EXISTS users (
@@ -93,6 +93,19 @@ CREATE TABLE IF NOT EXISTS password_resets (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS password_resets_user ON password_resets (user_id);
+
+-- Login do app de celular: o token fica só como hash; vale 30 dias a partir do último uso
+CREATE TABLE IF NOT EXISTS app_tokens (
+  id          SERIAL PRIMARY KEY,
+  user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  token_hash  TEXT NOT NULL UNIQUE,
+  dispositivo TEXT,
+  ip          TEXT,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  ultimo_uso  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  expira_em   TIMESTAMPTZ NOT NULL
+);
+CREATE INDEX IF NOT EXISTS app_tokens_user ON app_tokens (user_id);
 
 -- Trilha de auditoria: logins bloqueados, trocas de senha, mudanças de contas e perfis
 CREATE TABLE IF NOT EXISTS audit_log (

@@ -1,0 +1,29 @@
+{
+  "expo": {
+    "name": "QIMA HUB",
+    "slug": "qima-hub",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "scheme": "qimahub",
+    "android": {
+      "package": "br.com.qima.hub",
+      "adaptiveIcon": {
+        "backgroundColor": "#0c303e",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false,
+      "allowBackup": false
+    },
+    "plugins": [
+      "expo-secure-store",
+      "expo-font"
+    ],
+    "web": {
+      "favicon": "./assets/favicon.png"
+    }
+  }
+}

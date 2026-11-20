@@ -35,10 +35,27 @@ export async function verifyPasswordAsync(password, stored) {
 const HASH_FALSO = hashPassword(crypto.randomBytes(12).toString('hex'));
 export const gastarTempoDeSenha = (password) => verifyPasswordAsync(password, HASH_FALSO);
 
-/** Encerra as sessões da pessoa, menos (opcionalmente) a atual. */
-export function encerrarSessoes(userId, manterReq = null, t = pg) {
+/** Encerra as sessões do site e os logins do app da pessoa, menos (opcionalmente) o que está em uso agora. */
+export async function encerrarSessoes(userId, manterReq = null, t = pg) {
   const sid = manterReq ? parseCookies(manterReq)[COOKIE] : null;
-  return t.run('DELETE FROM sessions WHERE user_id = ? AND id <> ?', userId, sid ? hashSessao(sid) : '');
+  await t.run('DELETE FROM sessions WHERE user_id = ? AND id <> ?', userId, sid ? hashSessao(sid) : '');
+  await t.run('DELETE FROM app_tokens WHERE user_id = ? AND id <> ?', userId, manterReq?.appTokenId ?? 0);
+}
+
+// ---------------------------------------------------------------- login do app de celular (token no cabeçalho Authorization)
+const APP_MS = 30 * 24 * 60 * 60 * 1000; // 30 dias, renovados a cada uso
+const bearerDe = (req) => { const m = /^Bearer (qha_[A-Za-z0-9_-]{20,100})$/.exec(req.headers.authorization || ''); return m ? m[1] : null; };
+
+/** Cria o token do aparelho. Devolve o texto do token (só aparece aqui; no banco fica o hash). */
+export async function criarTokenApp(userId, { dispositivo = null, ip = null } = {}) {
+  const token = `qha_${crypto.randomBytes(32).toString('base64url')}`;
+  await pg.run(`INSERT INTO app_tokens (user_id, token_hash, dispositivo, ip, expira_em) VALUES (?, ?, ?, ?, now() + interval '30 days')`,
+    userId, hashSessao(token), dispositivo ? String(dispositivo).slice(0, 80) : null, ip);
+  return { token, expira_em: new Date(Date.now() + APP_MS).toISOString() };
+}
+
+export async function revogarTokenApp(req) {
+  if (req.appTokenId) await pg.run('DELETE FROM app_tokens WHERE id = ?', req.appTokenId);
 }
 
 function parseCookies(req) {
@@ -79,6 +96,19 @@ export const loadUser = a(async (req, _res, next) => {
       FROM sessions s JOIN users u ON u.id = s.user_id
       WHERE s.id = ? AND s.expires_at > ? AND u.active
     `, hashSessao(sid), Date.now());
+  }
+  const bearer = !req.user && bearerDe(req);
+  if (bearer) {
+    const t = await pg.get(`SELECT t.id, t.ultimo_uso, u.id AS uid, u.name, u.email, u.is_admin
+      FROM app_tokens t JOIN users u ON u.id = t.user_id WHERE t.token_hash = ? AND t.expira_em > now() AND u.active`, hashSessao(bearer));
+    if (t) {
+      req.user = { id: t.uid, name: t.name, email: t.email, is_admin: t.is_admin };
+      req.appTokenId = t.id;
+      // renova a validade (no máximo 1 vez por hora, para não gravar a cada pedido)
+      if (Date.now() - Date.parse(t.ultimo_uso.replace(' ', 'T') + 'Z') > 3600_000) {
+        await pg.run(`UPDATE app_tokens SET ultimo_uso = now(), expira_em = now() + interval '30 days' WHERE id = ?`, t.id);
+      }
+    }
   }
   next();
 });

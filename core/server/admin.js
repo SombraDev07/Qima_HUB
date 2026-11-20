@@ -1,6 +1,6 @@
 ﻿import express from 'express';
 import { pg } from './pg.js';
-import { a, hashPassword } from './auth.js';
+import { a, hashPassword, encerrarSessoes } from './auth.js';
 import { auditar, desbloquearEmail, hashToken, ipDe, novoToken, urlBase, validarSenha } from './lib/seguranca.js';
 import { registry, versoesDoBanco } from './moduleLoader.js';
 import { aiCarregar, aiConfigPublica, aiSalvar, aiTestar, aiUso } from './lib/ai.js';
@@ -70,7 +70,7 @@ export function adminRouter() {
     await pg.tx(async (t) => {
       await t.run('UPDATE users SET name = ?, email = ?, is_admin = ?, active = ? WHERE id = ?', name.trim(), email, !!is_admin, !!active, id);
       if (password) await t.run('UPDATE users SET password_hash = ? WHERE id = ?', hashPassword(password), id);
-      if (password || !active) await t.run('DELETE FROM sessions WHERE user_id = ?', id);
+      if (password || !active) await encerrarSessoes(id, null, t); // derruba site e app
       await saveAccess(t, id, access);
     });
     await auditar('usuario_alterado', { usuario: req.user, ip: ipDe(req), detalhe: `${email} admin=${!!is_admin} ativo=${!!active}${password ? ' senha trocada' : ''} acessos: ${JSON.stringify(access || {})}` });
