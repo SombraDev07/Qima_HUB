@@ -1,7 +1,8 @@
 // Área do Planejamento: lança as horas por distrito e semana (rascunho com salvamento automático) e envia para a Central.
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Send, Undo2 } from 'lucide-react';
-import { Button, Card, Empty, PageHeader, fmtDateTime, money, num, parseMoney, useAction, useConfirm, usePrompt, useToast } from '@hub';
+import { useSearchParams } from 'react-router-dom';
+import { Check, Send, Undo2 } from 'lucide-react';
+import { Button, Card, Empty, PageHeader, fmtDateTime, money, num, parseMoney, useAction, useAuth, useConfirm, usePrompt, useToast } from '@hub';
 import { Diferenca, GradeHoras, Kpi, Status, calcular, clone, statusDe } from './shared.jsx';
 
 /** Um distrito: edita o rascunho (ou mostra o aprovado) e envia. */
@@ -11,6 +12,9 @@ function DistritoCard({ api, plano, d, onAtualizar, onRecarregar }) {
   const perguntar = usePrompt();
   const [run, busy] = useAction();
   const st = statusDe(d);
+  const { modules } = useAuth();
+  const papel = modules.find((m) => m.key === 'horas_auditoria')?.role;
+  const ehCentral = papel === 'central' || papel === 'ambos';
   const ativo = d.aberta || d.aprovada;
   const [horas, setHoras] = useState(() => clone(ativo.horas));
   const [prog, setProg] = useState(ativo.prog);
@@ -51,6 +55,10 @@ function DistritoCard({ api, plano, d, onAtualizar, onRecarregar }) {
     if (nota === null) return;
     await run(async () => { await gravarAgora(); await api.post(`/distritos/${d.id}/enviar`, { nota }); onRecarregar(); }, 'Enviado para a Central');
   }
+  async function aplicar() {
+    if (!(await confirmar({ titulo: `Aplicar as alterações em ${d.nome}?`, mensagem: 'Como Central, as horas passam a valer agora, sem enviar para aprovação. Fica registrado no histórico.', confirmar: 'Aplicar' }))) return;
+    await run(async () => { await gravarAgora(); await api.post(`/central/distritos/${d.id}/aplicar`); onRecarregar(); }, 'Alterações aplicadas — já valem');
+  }
   async function descartar() {
     if (!(await confirmar({ titulo: 'Descartar alterações?', mensagem: 'O rascunho some e a versão aprovada continua valendo.', confirmar: 'Descartar', perigo: true }))) return;
     await run(async () => { clearTimeout(timer.current); await api.post(`/distritos/${d.id}/descartar`); onRecarregar(); }, 'Rascunho descartado');
@@ -67,7 +75,11 @@ function DistritoCard({ api, plano, d, onAtualizar, onRecarregar }) {
         {estado === 'pendente' && <span className="ha-salvo">Alterações ainda não salvas…</span>}
         {estado === 'salvo' && <span className="ha-salvo">Rascunho salvo</span>}
         <span className="ha-sp" />
-        {podeEnviar && <><Button variant="outline" onClick={descartar} disabled={busy}><Undo2 size={15} /> Descartar</Button><Button onClick={enviar} disabled={busy}><Send size={15} /> Enviar para aprovação</Button></>}
+        {podeEnviar && <>
+          <Button variant="outline" onClick={descartar} disabled={busy}><Undo2 size={15} /> Descartar</Button>
+          {ehCentral && <Button variant="outline" onClick={aplicar} disabled={busy}><Check size={15} /> Aplicar direto</Button>}
+          <Button onClick={enviar} disabled={busy}><Send size={15} /> Enviar para aprovação</Button>
+        </>}
       </div>
       {st === 'reprovado' && <div className="ha-aviso ha-aviso-ruim"><b>Reprovado por {d.aberta.decidido_por || 'Central'}:</b> {d.aberta.motivo}<br />A versão aprovada continua valendo. Ajuste abaixo e envie de novo.</div>}
       {st === 'pendente' && <div className="ha-aviso ha-aviso-pend">Enviado por <b>{d.aberta.por}</b> em {fmtDateTime(d.aberta.enviado_em)}{d.aberta.nota ? ` · “${d.aberta.nota}”` : ''}. Aguardando a Central — não dá para editar até ela responder.</div>}
@@ -86,9 +98,10 @@ function DistritoCard({ api, plano, d, onAtualizar, onRecarregar }) {
 
 export default function Planejamento({ api }) {
   const [planos, setPlanos] = useState(null);
-  const [pid, setPid] = useState('');
+  const [sp] = useSearchParams(); // ?p=planejamento&d=distrito (vem do botão "Lançar horas" da Central)
+  const [pid, setPid] = useState(sp.get('p') || '');
   const [det, setDet] = useState(null);
-  const [filtro, setFiltro] = useState('');
+  const [filtro, setFiltro] = useState(sp.get('d') || '');
   const [gen, setGen] = useState(0); // muda para recriar os cartões depois de enviar/descartar/recarregar
 
   const [erro, setErro] = useState('');

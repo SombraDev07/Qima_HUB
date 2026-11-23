@@ -192,6 +192,23 @@ export default {
       await avisar(t, v, `${d.nome} reprovado`, `<p>${esc(req.user.name)} <b>reprovou</b> as alterações em ${esc(d.nome)} (${esc(p.nome)}).</p><p>Motivo: ${esc(motivo)}</p><p>A versão aprovada anterior continua valendo. Ajuste e envie de novo.</p>`);
     }));
 
+    // A Central lança horas e já deixa valendo, sem precisar aprovar a si mesma. Fica no histórico como aprovação direta.
+    r.post('/central/distritos/:id/aplicar', cen, h(async (req, t) => {
+      const d = await t.get('SELECT * FROM horas_distritos WHERE id = ? FOR UPDATE', Number(req.params.id) || 0);
+      if (!d) throw new RuleError('Distrito não encontrado', 404);
+      const p = await getPlano(t, d.planejamento_id);
+      const v = await t.get("SELECT * FROM horas_versoes WHERE distrito_id = ? AND status = 'rascunho' FOR UPDATE", d.id);
+      if (!v) throw new RuleError('Não há alterações para aplicar neste distrito.');
+      const base = await t.get('SELECT * FROM horas_versoes WHERE id = ?', d.aprovada_id);
+      const resumo = resumir(p, { horas: json(base.horas), prog: n0(base.prog) }, { horas: json(v.horas), prog: n0(v.prog) });
+      if (!resumo.celulas && resumo.prog_antes === resumo.prog_depois) throw new RuleError('Nada mudou em relação à versão aprovada.');
+      await t.run("UPDATE horas_versoes SET status = 'substituida' WHERE id = ?", d.aprovada_id);
+      await t.run("UPDATE horas_versoes SET status = 'aprovada', motivo = NULL, enviado_em = now(), decidido_em = now(), decidido_por_nome = ?, criado_por_id = ?, criado_por_nome = ?, criado_por_email = ?, updated_at = now() WHERE id = ?",
+        req.user.name, req.user.id, req.user.name, req.user.email, v.id);
+      await t.run('UPDATE horas_distritos SET aprovada_id = ? WHERE id = ?', v.id, d.id);
+      await evento(t, p, d, v, 'aprovada', req.user, 'Aplicado direto pela Central (sem envio para aprovação)', resumo);
+    }));
+
     r.get('/central/pendentes', cen, ler(async () => {
       const rows = await db.all(`SELECT v.id FROM horas_versoes v JOIN horas_distritos d ON d.id = v.distrito_id WHERE v.status = 'pendente' ORDER BY v.enviado_em`);
       const out = [];

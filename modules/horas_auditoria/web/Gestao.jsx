@@ -1,6 +1,7 @@
 // Central: planejamentos (safras), distritos e parâmetros (R$ por hora, semanas, divisores). Mostra sempre a versão aprovada.
 import { useEffect, useRef, useState } from 'react';
-import { Pencil, Plus, Trash2, Upload } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Clock, Pencil, Plus, Trash2, Upload } from 'lucide-react';
 import { Button, Card, Empty, Field, Modal, PageHeader, money, num, todayISO, useAction, useConfirm, usePrompt } from '@hub';
 import { Diferenca, GradeHoras, Kpi, MODS, calcular } from './shared.jsx';
 
@@ -36,6 +37,7 @@ function PlanoModal({ inicial, taxasPadrao, onClose, onSalvar }) {
 }
 
 export default function Gestao({ api }) {
+  const navigate = useNavigate();
   const [cfg, setCfg] = useState(null);
   const [planos, setPlanos] = useState(null);
   const [pid, setPid] = useState('');
@@ -105,6 +107,7 @@ export default function Gestao({ api }) {
             return (
               <Card key={d.id} className="ha-card">
                 <div className="ha-card-top"><h2>{d.nome}</h2><Diferenca dif={c.dif} prog={c.prog} /><span className="ha-sp" />
+                  <Button onClick={() => navigate(`/m/horas_auditoria/solicitante?p=${pid}&d=${d.id}`)}><Clock size={15} /> Lançar horas</Button>
                   <Button variant="outline" onClick={() => renomear(d)}>Renomear</Button><Button variant="danger" onClick={() => remover(d)}>Remover</Button></div>
                 <GradeHoras plano={det.plano} horas={d.aprovada.horas} prog={d.aprovada.prog} disabled />
                 <div className="ha-rodape"><div><small>Horas</small><b>{num(c.horas)} h</b></div><div><small>Budget (R$)</small><b>{money(c.budget)}</b></div><div><small>Budget programado</small><b>{money(c.prog)}</b></div></div>

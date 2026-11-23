@@ -28,7 +28,8 @@ function Shell({ module, area, children }) {
   const pend = usePendentes(area === 'central');
   const links = area === 'solicitante'
     ? [{ to: base, label: 'Planejamento', end: true }, { to: `${base}/historico`, label: 'Histórico' }]
-    : [{ to: base, label: 'Aprovações', end: true, badge: pend || undefined }, { to: `${base}/planejamentos`, label: 'Planejamentos' }, { to: `${base}/historico`, label: 'Histórico' }];
+    : [{ to: base, label: 'Aprovações', end: true, badge: pend || undefined }, { to: `${base}/planejamentos`, label: 'Planejamentos' }, { to: `${base}/historico`, label: 'Histórico' },
+      { to: `/m/${module.key}/solicitante`, label: 'Lançar horas' }];
   return (
     <ToastProvider>
       <ModuleNav icon={module.icon} title={module.title} subtitle={module.labels[area]} links={links} />
