@@ -1,0 +1,10 @@
+{
+  "key": "horas_auditoria",
+  "title": "Horas de Auditoria",
+  "description": "Planejamento semanal de horas por distrito, budget, auditores e veículos, com aprovação da Central",
+  "icon": "clipboard-check",
+  "version": "1.0.0",
+  "order": 9,
+  "defaultStatus": "ativo",
+  "labels": { "solicitante": "Planejamento", "central": "Central" }
+}

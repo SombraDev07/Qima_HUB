@@ -1,0 +1,121 @@
+// Área do Planejamento: lança as horas por distrito e semana (rascunho com salvamento automático) e envia para a Central.
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Send, Undo2 } from 'lucide-react';
+import { Button, Card, Empty, PageHeader, fmtDateTime, money, num, parseMoney, useAction, useConfirm, usePrompt, useToast } from '@hub';
+import { Diferenca, GradeHoras, Kpi, Status, calcular, clone, statusDe } from './shared.jsx';
+
+/** Um distrito: edita o rascunho (ou mostra o aprovado) e envia. */
+function DistritoCard({ api, plano, d, onAtualizar, onRecarregar }) {
+  const toast = useToast();
+  const confirmar = useConfirm();
+  const perguntar = usePrompt();
+  const [run, busy] = useAction();
+  const st = statusDe(d);
+  const ativo = d.aberta || d.aprovada;
+  const [horas, setHoras] = useState(() => clone(ativo.horas));
+  const [prog, setProg] = useState(ativo.prog);
+  const [progTxt, setProgTxt] = useState(String(ativo.prog || '').replace('.', ','));
+  const [estado, setEstado] = useState('');
+  const rev = useRef(d.aberta?.rev || 0), timer = useRef(), ocupado = useRef(false), denovo = useRef(false), ult = useRef({ horas, prog });
+  const travado = st === 'pendente';
+
+  useEffect(() => () => clearTimeout(timer.current), []);
+
+  const salvar = useCallback(async () => {
+    if (ocupado.current) { denovo.current = true; return; }
+    ocupado.current = true; setEstado('salvando');
+    try {
+      const v = await api.put(`/distritos/${d.id}/rascunho`, { horas: ult.current.horas, prog: ult.current.prog, rev: rev.current });
+      rev.current = v.rev; setEstado('salvo'); onAtualizar(d.id, v);
+    } catch (e) {
+      setEstado('erro'); toast(e.message, 'erro');
+      if (e.status === 409) onRecarregar();
+    } finally {
+      ocupado.current = false;
+      if (denovo.current) { denovo.current = false; salvar(); }
+    }
+  }, [api, d.id, onAtualizar, onRecarregar, toast]);
+
+  const agendar = (h, p) => { ult.current = { horas: h, prog: p }; setEstado('pendente'); clearTimeout(timer.current); timer.current = setTimeout(salvar, 700); };
+  const aoMudar = (m, w, v) => { const h = clone(horas); h[m][w] = v; setHoras(h); agendar(h, prog); };
+  const aoMudarProg = (t) => { setProgTxt(t); const p = parseMoney(t) || 0; setProg(p); agendar(horas, p); };
+
+  /** Garante que o que está na tela já foi gravado antes de enviar. */
+  async function gravarAgora() {
+    clearTimeout(timer.current);
+    if (estado === 'pendente') await salvar();
+    while (ocupado.current) await new Promise((r) => setTimeout(r, 80));
+  }
+  async function enviar() {
+    const nota = await perguntar({ titulo: `Enviar ${d.nome} para aprovação`, label: 'Recado para a Central', obrigatorio: false, confirmar: 'Enviar' });
+    if (nota === null) return;
+    await run(async () => { await gravarAgora(); await api.post(`/distritos/${d.id}/enviar`, { nota }); onRecarregar(); }, 'Enviado para a Central');
+  }
+  async function descartar() {
+    if (!(await confirmar({ titulo: 'Descartar alterações?', mensagem: 'O rascunho some e a versão aprovada continua valendo.', confirmar: 'Descartar', perigo: true }))) return;
+    await run(async () => { clearTimeout(timer.current); await api.post(`/distritos/${d.id}/descartar`); onRecarregar(); }, 'Rascunho descartado');
+  }
+
+  const c = calcular(plano, horas, prog);
+  const base = d.aprovada;
+  const podeEnviar = !travado && (d.aberta || estado !== '');
+  return (
+    <Card className="ha-card">
+      <div className="ha-card-top">
+        <h2>{d.nome}</h2><Status s={st} />
+        {estado === 'salvando' && <span className="ha-salvo">Salvando…</span>}
+        {estado === 'pendente' && <span className="ha-salvo">Alterações ainda não salvas…</span>}
+        {estado === 'salvo' && <span className="ha-salvo">Rascunho salvo</span>}
+        <span className="ha-sp" />
+        {podeEnviar && <><Button variant="outline" onClick={descartar} disabled={busy}><Undo2 size={15} /> Descartar</Button><Button onClick={enviar} disabled={busy}><Send size={15} /> Enviar para aprovação</Button></>}
+      </div>
+      {st === 'reprovado' && <div className="ha-aviso ha-aviso-ruim"><b>Reprovado por {d.aberta.decidido_por || 'Central'}:</b> {d.aberta.motivo}<br />A versão aprovada continua valendo. Ajuste abaixo e envie de novo.</div>}
+      {st === 'pendente' && <div className="ha-aviso ha-aviso-pend">Enviado por <b>{d.aberta.por}</b> em {fmtDateTime(d.aberta.enviado_em)}{d.aberta.nota ? ` · “${d.aberta.nota}”` : ''}. Aguardando a Central — não dá para editar até ela responder.</div>}
+      {st === 'rascunho' && <div className="ha-aviso ha-aviso-azul">Rascunho com alterações ainda não enviadas. A versão aprovada continua valendo até a Central aprovar.</div>}
+      <GradeHoras plano={plano} horas={horas} prog={prog} comparar={st !== 'aprovada' ? base.horas : undefined} onChange={aoMudar} disabled={travado} />
+      <div className="ha-rodape">
+        <div><small>Horas</small><b>{num(c.horas)} h</b></div>
+        <div><small>Budget (R$)</small><b>{money(c.budget)}</b></div>
+        <div><small>Budget programado</small><input value={progTxt} onChange={(e) => aoMudarProg(e.target.value)} disabled={travado} inputMode="decimal" placeholder="0,00" /></div>
+        <div><small>Diferença</small><Diferenca dif={c.dif} prog={c.prog} /></div>
+        <div className="muted small">Aprovado hoje: {base.decidido_por ? `${base.decidido_por}, ` : ''}{fmtDateTime(base.decidido_em)}</div>
+      </div>
+    </Card>
+  );
+}
+
+export default function Planejamento({ api }) {
+  const [planos, setPlanos] = useState(null);
+  const [pid, setPid] = useState('');
+  const [det, setDet] = useState(null);
+  const [filtro, setFiltro] = useState('');
+  const [gen, setGen] = useState(0); // muda para recriar os cartões depois de enviar/descartar/recarregar
+
+  useEffect(() => { api.get('/planejamentos').then((l) => { setPlanos(l); if (l.length) setPid((p) => p || String(l[0].id)); }); }, []);
+  const carregar = useCallback(async () => {
+    if (!pid) return;
+    setDet(await api.get(`/planejamentos/${pid}`)); setGen((g) => g + 1);
+  }, [api, pid]);
+  useEffect(() => { setDet(null); carregar(); }, [pid]);
+
+  const atualizar = useCallback((id, v) => setDet((x) => x && ({ ...x, distritos: x.distritos.map((d) => (d.id === id ? { ...d, aberta: v } : d)) })), []);
+
+  if (!planos) return <Empty>Carregando…</Empty>;
+  if (!planos.length) return <><PageHeader back="/" title="Planejamento de horas" /><Empty>Ainda não há nenhum planejamento. A Central cria o primeiro (aba Planejamentos).</Empty></>;
+  const lista = det ? det.distritos.filter((d) => !filtro || String(d.id) === filtro) : [];
+  const pend = det ? det.distritos.filter((d) => d.aberta?.status === 'pendente').length : 0, rasc = det ? det.distritos.filter((d) => d.aberta?.status === 'rascunho').length : 0;
+  return (
+    <>
+      <PageHeader back="/" title="Planejamento de horas" subtitle="Lance as horas por distrito e semana. A Central compara com a versão atual e aprova antes de valer." />
+      <div className="ha-linha">
+        <label className="field"><span className="field-label">Planejamento</span>
+          <select value={pid} onChange={(e) => { setPid(e.target.value); setFiltro(''); }}>{planos.map((p) => <option key={p.id} value={p.id}>{p.nome}</option>)}</select></label>
+        <label className="field"><span className="field-label">Distrito</span>
+          <select value={filtro} onChange={(e) => setFiltro(e.target.value)}><option value="">Todos</option>{det?.distritos.map((d) => <option key={d.id} value={d.id}>{d.nome}</option>)}</select></label>
+      </div>
+      {det && <div className="ha-kpis"><Kpi rotulo="Distritos" valor={det.distritos.length} /><Kpi rotulo="Aguardando a Central" valor={pend} /><Kpi rotulo="Rascunhos" valor={rasc} /></div>}
+      {!det ? <Empty>Carregando…</Empty> : !lista.length ? <Empty>Nenhum distrito neste planejamento.</Empty>
+        : lista.map((d) => <DistritoCard key={`${d.id}-${gen}`} api={api} plano={det.plano} d={d} onAtualizar={atualizar} onRecarregar={carregar} />)}
+    </>
+  );
+}
