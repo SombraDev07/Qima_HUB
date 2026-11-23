@@ -8,7 +8,8 @@ export default function Aprovacoes({ api }) {
   const [lista, setLista] = useState(null);
   const [run, busy] = useAction();
   const perguntar = usePrompt();
-  const carregar = useCallback(() => api.get('/central/pendentes').then(setLista), [api]);
+  const [erro, setErro] = useState('');
+  const carregar = useCallback(() => api.get('/central/pendentes').then((l) => { setErro(''); setLista(l); }).catch((e) => setErro(e.message)), [api]);
   useEffect(() => { carregar(); }, [carregar]);
 
   async function aprovar(x) {
@@ -25,7 +26,7 @@ export default function Aprovacoes({ api }) {
   return (
     <>
       <PageHeader back="/" title="Aprovações" subtitle="Compare o que vale hoje com o que foi enviado. Se reprovar, a versão atual continua valendo." />
-      {!lista ? <Empty>Carregando…</Empty> : !lista.length ? <Empty>Nenhuma alteração aguardando aprovação.</Empty> : lista.map((x) => (
+      {erro ? <Empty>Não foi possível carregar: {erro}</Empty> : !lista ? <Empty>Carregando…</Empty> : !lista.length ? <Empty>Nenhuma alteração aguardando aprovação.</Empty> : lista.map((x) => (
         <Card key={x.nova.id} className="ha-card">
           <div className="ha-card-top">
             <h2>{x.distrito.nome}</h2><span className="muted">{x.plano.nome}</span><Status s="pendente" /><span className="ha-sp" />

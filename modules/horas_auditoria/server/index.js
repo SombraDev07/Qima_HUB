@@ -83,8 +83,10 @@ export default {
       return rows.map((x) => ({ id: x.id, nome: x.nome, aprovada: porId.get(x.a_id) || null, aberta: porId.get(x.o_id) || null }));
     }
     async function evento(t, p, d, v, acao, user, nota, resumo) {
-      await t.run(`INSERT INTO horas_eventos (planejamento_id, distrito_id, versao_id, distrito_nome, acao, por_id, por_nome, nota, resumo)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb)`, p.id, d?.id ?? null, v?.id ?? null, d?.nome ?? null, acao, user?.id ?? null, user?.name ?? 'Sistema', nota || null, resumo ? JSON.stringify(resumo) : null);
+      const { snap, ...leve } = resumo || {};
+      await t.run(`INSERT INTO horas_eventos (planejamento_id, distrito_id, versao_id, distrito_nome, acao, por_id, por_nome, nota, resumo, snap)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?::jsonb)`, p.id, d?.id ?? null, v?.id ?? null, d?.nome ?? null, acao, user?.id ?? null, user?.name ?? 'Sistema', nota || null,
+      resumo ? JSON.stringify(leve) : null, snap ? JSON.stringify(snap) : null);
     }
     const quemEnviou = (v) => ({ nome: v.criado_por_nome, email: v.criado_por_email });
 
@@ -216,7 +218,7 @@ export default {
     // ------------------------------------------------------------ histórico e painel
     r.get('/historico', sol, ler(async (req) => {
       const pid = Number(req.query.plano) || null;
-      const ev = await db.all(`SELECT e.id, e.planejamento_id, e.distrito_id, e.versao_id, e.distrito_nome, e.acao, e.por_id, e.por_nome, e.nota, (e.resumo - 'snap') AS resumo, jsonb_exists(e.resumo, 'snap') AS tem_snap, e.created_at
+      const ev = await db.all(`SELECT e.id, e.planejamento_id, e.distrito_id, e.versao_id, e.distrito_nome, e.acao, e.por_id, e.por_nome, e.nota, e.resumo, (e.snap IS NOT NULL) AS tem_snap, e.created_at
         FROM horas_eventos e ${pid ? 'WHERE e.planejamento_id = ?' : ''} ORDER BY e.id DESC LIMIT 1500`, ...(pid ? [pid] : []));
       const ps = await db.all('SELECT * FROM horas_planejamentos ORDER BY id DESC');
       return { planos: ps.map(plano), eventos: ev.map((e) => ({ ...e, resumo: e.resumo ? json(e.resumo) : null })) };
@@ -225,7 +227,7 @@ export default {
     // o que foi enviado/aprovado naquele momento (antes × depois)
     r.get('/eventos/:id', sol, ler(async (req) => {
       const e = await db.get('SELECT * FROM horas_eventos WHERE id = ?', Number(req.params.id) || 0);
-      const snap = e?.resumo ? json(e.resumo).snap : null;
+      const snap = e?.snap ? json(e.snap) : null;
       if (!snap) throw new RuleError('Este registro não tem as horas guardadas.', 404);
       return { plano: { ...(await getPlano(db, e.planejamento_id)), ...(snap.params || {}) }, distrito: e.distrito_nome, acao: e.acao, antes: snap.antes, depois: snap.depois };
     }));

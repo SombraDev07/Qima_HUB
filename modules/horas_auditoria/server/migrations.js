@@ -75,4 +75,11 @@ export default [
       `);
     },
   },
+  {
+    version: 2,
+    async up(db) {
+      // a cópia das horas (antes × depois) fica fora do resumo: a lista do histórico não precisa carregá-la
+      await db.exec('ALTER TABLE horas_eventos ADD COLUMN snap JSONB;');
+    },
+  },
 ];

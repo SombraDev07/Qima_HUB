@@ -91,15 +91,17 @@ export default function Planejamento({ api }) {
   const [filtro, setFiltro] = useState('');
   const [gen, setGen] = useState(0); // muda para recriar os cartões depois de enviar/descartar/recarregar
 
-  useEffect(() => { api.get('/planejamentos').then((l) => { setPlanos(l); if (l.length) setPid((p) => p || String(l[0].id)); }); }, []);
+  const [erro, setErro] = useState('');
+  useEffect(() => { api.get('/planejamentos').then((l) => { setPlanos(l); if (l.length) setPid((p) => p || String(l[0].id)); }).catch((e) => setErro(e.message)); }, []);
   const carregar = useCallback(async () => {
     if (!pid) return;
-    setDet(await api.get(`/planejamentos/${pid}`)); setGen((g) => g + 1);
+    try { setDet(await api.get(`/planejamentos/${pid}`)); setGen((g) => g + 1); } catch (e) { setErro(e.message); }
   }, [api, pid]);
   useEffect(() => { setDet(null); carregar(); }, [pid]);
 
   const atualizar = useCallback((id, v) => setDet((x) => x && ({ ...x, distritos: x.distritos.map((d) => (d.id === id ? { ...d, aberta: v } : d)) })), []);
 
+  if (erro) return <Empty>Não foi possível carregar: {erro}</Empty>;
   if (!planos) return <Empty>Carregando…</Empty>;
   if (!planos.length) return <><PageHeader back="/" title="Planejamento de horas" /><Empty>Ainda não há nenhum planejamento. A Central cria o primeiro (aba Planejamentos).</Empty></>;
   const lista = det ? det.distritos.filter((d) => !filtro || String(d.id) === filtro) : [];

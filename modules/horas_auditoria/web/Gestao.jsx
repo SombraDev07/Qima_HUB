@@ -48,7 +48,8 @@ export default function Gestao({ api }) {
 
   const lerPlanos = async (escolher) => { const l = await api.get('/planejamentos'); setPlanos(l); setPid((p) => String(escolher ?? (l.some((x) => String(x.id) === p) ? p : l[0]?.id ?? ''))); };
   const lerDet = async () => { if (pid) setDet(await api.get(`/planejamentos/${pid}`)); else setDet(null); };
-  useEffect(() => { api.get('/config').then(setCfg); lerPlanos(); }, []);
+  const [erro, setErro] = useState('');
+  useEffect(() => { api.get('/config').then(setCfg).catch((e) => setErro(e.message)); lerPlanos().catch((e) => setErro(e.message)); }, []);
   useEffect(() => { setDet(null); lerDet(); }, [pid]);
 
   async function novoDistrito() {
@@ -78,6 +79,7 @@ export default function Gestao({ api }) {
     await run(async () => { const r = await api.post('/central/importar', { planos: j.planos }); await lerPlanos(); return r; }, (r) => `Importado: ${r.criados.join(', ')}`);
   }
 
+  if (erro) return <Empty>Não foi possível carregar: {erro}</Empty>;
   if (!planos || !cfg) return <Empty>Carregando…</Empty>;
   const p = planos.find((x) => String(x.id) === pid);
   return (

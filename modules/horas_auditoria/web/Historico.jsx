@@ -82,7 +82,8 @@ export default function Historico({ api }) {
   const [limite, setLimite] = useState(POR_PAGINA);
   const [ver, setVer] = useState(null);
 
-  useEffect(() => { api.get('/historico').then((d) => { setData(d); setPid((p) => p || String(d.planos[0]?.id ?? '')); }); }, []);
+  const [erro, setErro] = useState('');
+  useEffect(() => { api.get('/historico').then((d) => { setData(d); setPid((p) => p || String(d.planos[0]?.id ?? '')); }).catch((e) => setErro(e.message)); }, []);
 
   const m = useMemo(() => {
     if (!data || !pid) return null;
@@ -145,6 +146,7 @@ export default function Historico({ api }) {
       baldes: [...baldes.values()], linha, distritos, plan: [...plan.values()].sort((a, b) => b.env - a.env), cen: [...cen.values()].sort((a, b) => b.apr + b.rep - a.apr - a.rep), esperaPorEvento: espera, pessoas, nomes };
   }, [data, pid, periodo, dist, pessoa]);
 
+  if (erro) return <Empty>Não foi possível carregar: {erro}</Empty>;
   if (!data) return <Empty>Carregando…</Empty>;
   if (!data.planos.length) return <><PageHeader back="/" title="Histórico" /><Empty>Ainda não há planejamentos.</Empty></>;
 
