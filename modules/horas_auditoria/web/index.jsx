@@ -1,4 +1,4 @@
-// Telas do sistema Horas de Auditoria. Exporta { Solicitante, Central } para o núcleo do HUB.
+﻿// Telas do sistema Horas de Auditoria. Exporta { Solicitante, Central } para o núcleo do HUB.
 // Solicitante = Planejamento (lança as horas e envia). Central = aprova, cadastra planejamentos e distritos.
 import { useEffect, useState } from 'react';
 import { Route, Routes } from 'react-router-dom';
@@ -7,6 +7,7 @@ import Planejamento from './Planejamento.jsx';
 import Aprovacoes from './Aprovacoes.jsx';
 import Gestao from './Gestao.jsx';
 import Historico from './Historico.jsx';
+import Painel from './Painel.jsx';
 import './horas.css';
 
 const api = moduleApi('horas_auditoria');
@@ -27,8 +28,8 @@ function Shell({ module, area, children }) {
   const base = `/m/${module.key}/${area}`;
   const pend = usePendentes(area === 'central');
   const links = area === 'solicitante'
-    ? [{ to: base, label: 'Planejamento', end: true }, { to: `${base}/historico`, label: 'Histórico' }]
-    : [{ to: base, label: 'Aprovações', end: true, badge: pend || undefined }, { to: `${base}/planejamentos`, label: 'Planejamentos' }, { to: `${base}/historico`, label: 'Histórico' },
+    ? [{ to: base, label: 'Planejamento', end: true }, { to: `${base}/painel`, label: 'Painel' }, { to: `${base}/historico`, label: 'Histórico' }]
+    : [{ to: base, label: 'Aprovações', end: true, badge: pend || undefined }, { to: `${base}/planejamentos`, label: 'Planejamentos' }, { to: `${base}/painel`, label: 'Painel' }, { to: `${base}/historico`, label: 'Histórico' },
       { to: `/m/${module.key}/solicitante`, label: 'Lançar horas' }];
   return (
     <ToastProvider>
@@ -43,6 +44,7 @@ export default {
     <Shell {...props} area="solicitante">
       <Routes>
         <Route index element={<Planejamento api={api} />} />
+        <Route path="painel" element={<Painel api={api} />} />
         <Route path="historico" element={<Historico api={api} />} />
       </Routes>
     </Shell>
@@ -52,8 +54,10 @@ export default {
       <Routes>
         <Route index element={<Aprovacoes api={api} />} />
         <Route path="planejamentos" element={<Gestao api={api} />} />
+        <Route path="painel" element={<Painel api={api} />} />
         <Route path="historico" element={<Historico api={api} />} />
       </Routes>
     </Shell>
   ),
 };
+

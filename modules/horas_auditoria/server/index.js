@@ -27,7 +27,7 @@ export default {
       return `${r.pend} aguardando aprovação · ${r.planos} planejamento(s)`;
     }
     const r = await db.get(`SELECT COUNT(*) FILTER (WHERE status = 'rascunho') AS rasc, COUNT(*) FILTER (WHERE status = 'pendente') AS pend,
-      COUNT(*) FILTER (WHERE status = 'rascunho' AND motivo IS NOT NULL) AS rep FROM horas_versoes WHERE criado_por_id = ?`, user.id);
+      COUNT(*) FILTER (WHERE status = 'rascunho' AND motivo IS NOT NULL) AS rep FROM horas_versoes WHERE status IN ('rascunho','pendente')`);
     return `${r.pend} em análise · ${r.rasc} rascunho(s)${r.rep ? ` · ${r.rep} reprovado(s)` : ''}`;
   },
 
@@ -38,7 +38,7 @@ export default {
       out.push({ central: true, qtd: r.n, texto: 'alteração(ões) de horas aguardando aprovação' });
     }
     if (isSolicitante) {
-      const r = await db.get("SELECT COUNT(*) AS n FROM horas_versoes WHERE status = 'rascunho' AND motivo IS NOT NULL AND criado_por_id = ?", user.id);
+      const r = await db.get("SELECT COUNT(*) AS n FROM horas_versoes WHERE status = 'rascunho' AND motivo IS NOT NULL");
       out.push({ link: 'solicitante', qtd: r.n, texto: 'planejamento(s) reprovado(s) para ajustar' });
     }
     return out;
@@ -271,6 +271,13 @@ export default {
     }
     const nomeDistrito = (v) => { const n = txt(v, 80); if (!n) throw new RuleError('Informe o nome do distrito.'); return n; };
     const duplicado = (e) => (e?.code === '23505' ? new RuleError('Já existe um distrito com esse nome neste planejamento.') : e);
+
+    // Qualquer planejador cria distritos (nasce zerado e já aprovado; as horas entram pelo rascunho e passam pela Central)
+    r.post('/planejamentos/:id/distritos', sol, h(async (req, t) => {
+      const p = await getPlano(t, req.params.id);
+      const nome = nomeDistrito(req.body?.nome);
+      try { return await criarDistrito(t, p, nome, 0, horasVazias(p.semanas), req.user); } catch (e) { throw duplicado(e); }
+    }));
 
     r.post('/central/planejamentos', cen, h(async (req, t) => {
       const d = lerPlano(req.body || {});

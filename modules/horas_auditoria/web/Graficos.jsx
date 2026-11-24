@@ -1,4 +1,4 @@
-// Gráficos em SVG puro (sem biblioteca) para o painel de histórico.
+﻿// Gráficos em SVG puro (sem biblioteca) para o painel de histórico.
 import { useState } from 'react';
 import { money } from '@hub';
 
@@ -10,35 +10,57 @@ export function Legenda({ itens }) {
   return <div className="ha-leg">{itens.map(([cor, nome]) => <span key={nome}><i style={{ background: cor }} />{nome}</span>)}</div>;
 }
 
-/** Barras empilhadas. dados: [{ rotulo, v: [a, b, c] }], cores: [c1, c2, c3] */
-export function BarrasEmpilhadas({ dados, cores }) {
-  const W = 640, H = 220, ml = 30, mb = 28, mt = 10, area = { w: W - ml - 8, h: H - mb - mt };
-  const max = Math.max(1, ...dados.map((d) => d.v.reduce((a, b) => a + b, 0)));
-  const st = Math.max(1, Math.ceil(max / 4)), topo = st * Math.ceil(max / st);
-  const bw = Math.min(46, (area.w / Math.max(1, dados.length)) * 0.62), gap = area.w / Math.max(1, dados.length);
+/** Barras empilhadas. dados: [{ rotulo, titulo, v: [a, b, ...] }], cores/nomes: uma por série. fmt formata o valor no eixo e na dica. */
+export function BarrasEmpilhadas({ dados, cores, nomes = ['Enviados', 'Aprovados', 'Reprovados'], fmt = (v) => String(Math.round(v * 100) / 100), unidade = '' }) {
+  const W = 640, H = 230, ml = 46, mb = 28, mt = 10, area = { w: W - ml - 8, h: H - mb - mt };
+  const soma = (d) => d.v.reduce((a, b) => a + b, 0);
+  const max = Math.max(1, ...dados.map(soma));
+  const st = passo(max), topo = st * Math.ceil(max / st);
+  const gap = area.w / Math.max(1, dados.length), bw = Math.min(46, gap * 0.7), cada = Math.ceil(dados.length / 12);
   const [tip, setTip] = useState(null);
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="ha-svg" role="img" aria-label="Atividade por período">
-      {Array.from({ length: topo / st + 1 }, (_, i) => { const y = mt + area.h - (i * st / topo) * area.h; return <g key={i}><line x1={ml} x2={W - 8} y1={y} y2={y} stroke="#e5e7eb" /><text x={ml - 6} y={y + 4} textAnchor="end">{i * st}</text></g>; })}
+    <svg viewBox={`0 0 ${W} ${H}`} className="ha-svg" role="img" aria-label="Gráfico de barras">
+      {Array.from({ length: Math.round(topo / st) + 1 }, (_, i) => { const y = mt + area.h - (i * st / topo) * area.h; return <g key={i}><line x1={ml} x2={W - 8} y1={y} y2={y} stroke="#e5e7eb" /><text x={ml - 6} y={y + 4} textAnchor="end">{compacto(i * st)}</text></g>; })}
       {dados.map((d, i) => {
         let y = mt + area.h; const x = ml + gap * i + (gap - bw) / 2;
         return (
           <g key={i} onMouseEnter={() => setTip(i)} onMouseLeave={() => setTip(null)}>
             <rect x={ml + gap * i} y={mt} width={gap} height={area.h} fill="transparent" />
-            {d.v.map((v, k) => { const h = (v / topo) * area.h; y -= h; return v ? <rect key={k} x={x} y={y} width={bw} height={h} fill={cores[k]} rx={2} /> : null; })}
-            <text x={x + bw / 2} y={H - 10} textAnchor="middle">{d.rotulo}</text>
+            {d.v.map((v, k) => { const h = (v / topo) * area.h; y -= h; return v ? <rect key={k} x={x} y={y} width={bw} height={h} fill={cores[k]} rx={1.5} /> : null; })}
+            {i % cada === 0 && <text x={x + bw / 2} y={H - 10} textAnchor="middle">{d.rotulo}</text>}
           </g>
         );
       })}
       {tip !== null && dados[tip] && (() => {
-        const d = dados[tip], x = Math.min(W - 150, ml + gap * tip + gap / 2 + 8);
-        return <g pointerEvents="none"><rect x={x} y={mt} width={142} height={58} rx={6} fill="#0c303e" /><text x={x + 8} y={mt + 16} style={{ fill: '#fff', fontWeight: 700 }}>{dados[tip].titulo || d.rotulo}</text>
-          {['Enviados', 'Aprovados', 'Reprovados'].map((n, k) => <text key={n} x={x + 8} y={mt + 31 + k * 12} style={{ fill: '#cfe0e7' }}>{n}: {d.v[k]}</text>)}</g>;
+        const d = dados[tip], bh = 24 + nomes.length * 13 + (nomes.length > 1 ? 13 : 0), bx = ml + gap * tip + gap / 2, x = bx > W / 2 ? bx - 166 : bx + 10;
+        return <g pointerEvents="none"><rect x={x} y={mt} width={156} height={bh} rx={6} fill="#0c303e" /><text x={x + 8} y={mt + 16} style={{ fill: '#fff', fontWeight: 700 }}>{d.titulo || d.rotulo}</text>
+          {nomes.map((n, k) => <text key={n} x={x + 8} y={mt + 31 + k * 13} style={{ fill: '#cfe0e7' }}>{n}: {fmt(d.v[k])}{unidade}</text>)}
+          {nomes.length > 1 && <text x={x + 8} y={mt + 31 + nomes.length * 13} style={{ fill: '#fff', fontWeight: 700 }}>Total: {fmt(soma(d))}{unidade}</text>}</g>;
       })()}
     </svg>
   );
 }
 
+/** Linhas por semana (eixo x = rótulos). series: [{ nome, cor, v: [], tracejado }]. */
+export function LinhasSemanas({ rotulos, series, fmt = compacto }) {
+  const W = 640, H = 230, ml = 56, mb = 28, mt = 10, w = W - ml - 12, h = H - mb - mt;
+  const max = Math.max(1, ...series.flatMap((s) => s.v)), st = passo(max), topo = st * Math.ceil(max / st), n = rotulos.length, cada = Math.ceil(n / 10);
+  const x = (i) => ml + (n > 1 ? (i / (n - 1)) * w : w / 2), y = (v) => mt + h - (v / topo) * h;
+  const [tip, setTip] = useState(null);
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} className="ha-svg" role="img" aria-label="Gráfico de linhas por semana">
+      {Array.from({ length: Math.round(topo / st) + 1 }, (_, i) => <g key={i}><line x1={ml} x2={W - 12} y1={y(i * st)} y2={y(i * st)} stroke="#e5e7eb" /><text x={ml - 6} y={y(i * st) + 4} textAnchor="end">{fmt(i * st)}</text></g>)}
+      {rotulos.map((r, i) => (i % cada === 0 ? <text key={i} x={x(i)} y={H - 10} textAnchor="middle">{r}</text> : null))}
+      {series.map((s) => <path key={s.nome} d={s.v.map((v, i) => `${i ? 'L' : 'M'}${x(i)},${y(v)}`).join(' ')} fill="none" stroke={s.cor} strokeWidth={2.4} strokeDasharray={s.tracejado ? '5 4' : undefined} />)}
+      {rotulos.map((r, i) => <rect key={i} x={x(i) - w / n / 2} y={mt} width={w / n} height={h} fill="transparent" onMouseEnter={() => setTip(i)} onMouseLeave={() => setTip(null)} />)}
+      {tip !== null && (() => {
+        const bh = 24 + series.length * 13, bx = x(tip), xx = bx > W / 2 ? bx - 186 : bx + 10;
+        return <g pointerEvents="none"><line x1={bx} x2={bx} y1={mt} y2={mt + h} stroke="#9aa5ad" strokeDasharray="3 3" /><rect x={xx} y={mt} width={176} height={bh} rx={6} fill="#0c303e" /><text x={xx + 8} y={mt + 16} style={{ fill: '#fff', fontWeight: 700 }}>{rotulos[tip]}</text>
+          {series.map((s, k) => <text key={s.nome} x={xx + 8} y={mt + 31 + k * 13} style={{ fill: '#cfe0e7' }}>{s.nome}: {s.fmt ? s.fmt(s.v[tip]) : fmt(s.v[tip])}</text>)}</g>;
+      })()}
+    </svg>
+  );
+}
 /** Linhas em degrau no tempo. pontos: [{ t: ms, v: [serie1, serie2] }] */
 export function LinhasTempo({ pontos, de, ate, cores }) {
   const W = 640, H = 230, ml = 56, mb = 26, mt = 10, w = W - ml - 12, h = H - mb - mt;
@@ -80,3 +102,4 @@ export function Rosca({ fatias, centro, legenda }) {
     </div>
   );
 }
+

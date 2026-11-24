@@ -1,7 +1,7 @@
 // Área do Planejamento: lança as horas por distrito e semana (rascunho com salvamento automático) e envia para a Central.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Check, ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown, Send, Undo2 } from 'lucide-react';
+import { Check, Plus, ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown, Send, Undo2 } from 'lucide-react';
 import { Button, Card, Empty, PageHeader, fmtDateTime, money, num, parseMoney, useAction, useAuth, useConfirm, usePrompt, useToast } from '@hub';
 import { Diferenca, GradeHoras, Kpi, Status, calcular, clone, statusDe } from './shared.jsx';
 
@@ -84,9 +84,9 @@ function DistritoCard({ api, plano, d, onAtualizar, onRecarregar, fechado, onAlt
         </>}
       </div>
       {!fechado && <>
-      {st === 'reprovado' && <div className="ha-aviso ha-aviso-ruim"><b>Reprovado por {d.aberta.decidido_por || 'Central'}:</b> {d.aberta.motivo}<br />A versão aprovada continua valendo. Ajuste abaixo e envie de novo.</div>}
+      {st === 'reprovado' && <div className="ha-aviso ha-aviso-ruim"><b>Pedido reprovado por {d.aberta.decidido_por || 'Central'}</b> em {fmtDateTime(d.aberta.decidido_em)} · solicitado por <b>{d.aberta.por}</b><br /><b>Motivo:</b> {d.aberta.motivo}<br />A versão aprovada continua valendo. Qualquer planejador pode ajustar abaixo e enviar de novo.</div>}
       {st === 'pendente' && <div className="ha-aviso ha-aviso-pend">Enviado por <b>{d.aberta.por}</b> em {fmtDateTime(d.aberta.enviado_em)}{d.aberta.nota ? ` · “${d.aberta.nota}”` : ''}. Aguardando a Central — não dá para editar até ela responder.</div>}
-      {st === 'rascunho' && <div className="ha-aviso ha-aviso-azul">Rascunho com alterações ainda não enviadas. A versão aprovada continua valendo até a Central aprovar.</div>}
+      {st === 'rascunho' && <div className="ha-aviso ha-aviso-azul">Rascunho de <b>{d.aberta.por}</b> · última edição {fmtDateTime(d.aberta.atualizado)}. Ainda não enviado; a versão aprovada continua valendo até a Central aprovar. Todos os planejadores podem editar.</div>}
       <GradeHoras plano={plano} horas={horas} prog={prog} comparar={st !== 'aprovada' ? base.horas : undefined} onChange={aoMudar} disabled={travado} />
       <div className="ha-rodape">
         <div><small>Horas</small><b>{num(c.horas)} h</b></div>
@@ -106,6 +106,8 @@ export default function Planejamento({ api }) {
   const [pid, setPid] = useState(sp.get('p') || '');
   const [det, setDet] = useState(null);
   const [filtro, setFiltro] = useState(sp.get('d') || '');
+  const perguntar = usePrompt();
+  const [run, busy] = useAction();
   const [fechados, setFechados] = useState(() => new Set()); // distritos minimizados
   const alternar = (id) => setFechados((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const [gen, setGen] = useState(0); // muda para recriar os cartões depois de enviar/descartar/recarregar
@@ -120,11 +122,18 @@ export default function Planejamento({ api }) {
 
   const atualizar = useCallback((id, v) => setDet((x) => x && ({ ...x, distritos: x.distritos.map((d) => (d.id === id ? { ...d, aberta: v } : d)) })), []);
 
+  async function novoDistrito() {
+    const nome = await perguntar({ titulo: 'Novo distrito', label: 'Nome do distrito', obrigatorio: true, confirmar: 'Criar' });
+    if (!nome) return;
+    await run(async () => { const d = await api.post(`/planejamentos/${pid}/distritos`, { nome }); await carregar(); setFiltro(String(d.id)); }, 'Distrito criado — lance as horas e envie para a Central');
+  }
+
   if (erro) return <Empty>Não foi possível carregar: {erro}</Empty>;
   if (!planos) return <Empty>Carregando…</Empty>;
   if (!planos.length) return <><PageHeader back="/" title="Planejamento de horas" /><Empty>Ainda não há nenhum planejamento. A Central cria o primeiro (aba Planejamentos).</Empty></>;
   const lista = det ? det.distritos.filter((d) => !filtro || String(d.id) === filtro) : [];
-  const pend = det ? det.distritos.filter((d) => d.aberta?.status === 'pendente').length : 0, rasc = det ? det.distritos.filter((d) => d.aberta?.status === 'rascunho').length : 0;
+  const pend = det ? det.distritos.filter((d) => d.aberta?.status === 'pendente').length : 0, rep = det ? det.distritos.filter((d) => statusDe(d) === 'reprovado').length : 0;
+  const rasc = det ? det.distritos.filter((d) => d.aberta?.status === 'rascunho').length - rep : 0;
   return (
     <>
       <PageHeader back="/" title="Planejamento de horas" subtitle="Lance as horas por distrito e semana. A Central compara com a versão atual e aprova antes de valer." />
@@ -134,10 +143,11 @@ export default function Planejamento({ api }) {
         <label className="field"><span className="field-label">Distrito</span>
           <select value={filtro} onChange={(e) => setFiltro(e.target.value)}><option value="">Todos</option>{det?.distritos.map((d) => <option key={d.id} value={d.id}>{d.nome}</option>)}</select></label>
         <span className="ha-sp" />
+        <Button onClick={novoDistrito} disabled={!det || busy}><Plus size={15} /> Novo distrito</Button>
         {det && <><Button variant="outline" onClick={() => setFechados(new Set(det.distritos.map((d) => d.id)))}><ChevronsDownUp size={15} /> Minimizar todos</Button>
           <Button variant="outline" onClick={() => setFechados(new Set())}><ChevronsUpDown size={15} /> Expandir todos</Button></>}
       </div>
-      {det && <div className="ha-kpis"><Kpi rotulo="Distritos" valor={det.distritos.length} /><Kpi rotulo="Aguardando a Central" valor={pend} /><Kpi rotulo="Rascunhos" valor={rasc} /></div>}
+      {det && <div className="ha-kpis"><Kpi rotulo="Distritos" valor={det.distritos.length} /><Kpi rotulo="Aguardando a Central" valor={pend} /><Kpi rotulo="Rascunhos" valor={rasc} /><Kpi rotulo="Reprovados" valor={rep} tom={rep ? 'ruim' : undefined} detalhe="precisam de ajuste" /></div>}
       {!det ? <Empty>Carregando…</Empty> : !lista.length ? <Empty>Nenhum distrito neste planejamento.</Empty>
         : lista.map((d) => <DistritoCard key={`${d.id}-${gen}`} api={api} plano={det.plano} d={d} onAtualizar={atualizar} onRecarregar={carregar} fechado={fechados.has(d.id)} onAlternar={() => alternar(d.id)} />)}
     </>
