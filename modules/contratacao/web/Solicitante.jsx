@@ -185,7 +185,8 @@ function Formulario({ module, api }) {
 
   const salvar = async (rascunho) => {
     setErro('');
-    if (f.cidade && !cidadeOficial(f.cidade, f.uf)) return setErro(`Escolha uma cidade válida de ${f.uf} na lista (ou deixe em branco para só o estado).`);
+    if (!rascunho && !f.cidade.trim()) return setErro('Informe a cidade da vaga.');
+    if (f.cidade && !cidadeOficial(f.cidade, f.uf)) return setErro(`Escolha uma cidade válida de ${f.uf} na lista.`);
     if (!rascunho && !await confirmar({
       titulo: 'Enviar a solicitação?',
       mensagem: `${f.qtd} vaga(s) de ${f.funcao}${f.cidade ? ` em ${f.cidade} - ${f.uf}` : ` em ${f.uf}`} vão para o RH.`,
@@ -212,7 +213,7 @@ function Formulario({ module, api }) {
           <Alert>{erro}</Alert>
           <Field label="Operação / Projeto"><select value={f.projeto} onChange={set('projeto')}>{cfg.projetos.map((p) => <option key={p}>{p}</option>)}</select></Field>
           <Field label="Função"><select value={f.funcao} onChange={set('funcao')}>{cfg.funcoes.map((p) => <option key={p}>{p}</option>)}</select></Field>
-          <Field label="Cidade e UF" hint="Digite a cidade — o estado entra sozinho"><CidadeInput cidade={f.cidade} uf={f.uf} onChange={({ cidade, uf }) => setF({ ...f, cidade, uf })} /></Field>
+          <Field label="Cidade e UF *" hint="Digite a cidade — o estado entra sozinho"><CidadeInput cidade={f.cidade} uf={f.uf} onChange={({ cidade, uf }) => setF({ ...f, cidade, uf })} /></Field>
           <Field label="Data de início"><input type="date" value={f.data_desejada} onChange={set('data_desejada')} /></Field>
           <Field label="Observação (opcional)"><textarea rows={3} value={f.observacao} onChange={set('observacao')} placeholder="Observação da vaga" /></Field>
           <div className="ct-req">

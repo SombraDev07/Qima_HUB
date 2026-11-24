@@ -31,7 +31,8 @@ export function Formulario() {
 
   const salvar = async (rascunho: boolean) => {
     setErro(''); setErroCidade('');
-    if (f.cidade && !cidadeOficial(f.cidade, f.uf)) { setErroCidade(`Escolha uma cidade de ${f.uf} na lista (ou deixe em branco para só o estado).`); return; }
+    if (!rascunho && !f.cidade.trim()) { setErroCidade('Informe a cidade da vaga.'); return; }
+    if (f.cidade && !cidadeOficial(f.cidade, f.uf)) { setErroCidade(`Escolha uma cidade de ${f.uf} na lista.`); return; }
     if (!rascunho && !await confirmar({
       titulo: 'Enviar a solicitação?',
       mensagem: `${f.qtd} vaga(s) de ${f.funcao}${f.cidade ? ` em ${f.cidade} - ${f.uf}` : ` em ${f.uf}`} vão para o RH.`,
@@ -60,7 +61,7 @@ export function Formulario() {
       <CampoSelecao rotulo="Operação / Projeto" valor={f.projeto} opcoes={(cfg?.projetos ?? []).map((p) => ({ valor: p, rotulo: p }))} aoMudar={(v) => set('projeto', v)} />
       <CampoSelecao rotulo="Função" valor={f.funcao} opcoes={(cfg?.funcoes ?? []).map((p) => ({ valor: p, rotulo: p }))} aoMudar={(v) => set('funcao', v)} />
       <CampoSelecao rotulo="Estado" valor={f.uf} opcoes={UFS.map((u) => ({ valor: u, rotulo: u }))} aoMudar={(u) => setF((x) => ({ ...x, uf: u, cidade: cidadeOficial(x.cidade, u) ? x.cidade : '' }))} />
-      <CampoCidade uf={f.uf} cidade={f.cidade} aoMudar={(c) => { set('cidade', c); setErroCidade(''); }} opcional erro={erroCidade} />
+      <CampoCidade uf={f.uf} cidade={f.cidade} aoMudar={(c) => { set('cidade', c); setErroCidade(''); }} erro={erroCidade} />
       <CampoData rotulo="Data de início" valor={f.data_desejada} aoMudar={(v) => set('data_desejada', v)} />
       <Campo rotulo="Quantidade de vagas" value={f.qtd} onChangeText={(v) => set('qtd', v.replace(/\D/g, ''))} keyboardType="number-pad" />
       <Secao titulo="Requisitos da vaga" />

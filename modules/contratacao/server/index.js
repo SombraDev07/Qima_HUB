@@ -107,6 +107,8 @@ export default {
       const uf = UFS.includes(b.uf) ? b.uf : null;
       if (!uf) throw new RuleError('Informe a UF.');
       const cidade = String(b.cidade || '').trim() || null;
+      // rascunho pode ficar sem cidade; para enviar ao RH a cidade é obrigatória
+      if (!cidade && !b.rascunho) throw new RuleError('Informe a cidade da vaga.');
       return {
         projeto: b.projeto || projetos[0], funcao: b.funcao, cidade, uf, distrito: await distritoDe(t, cidade, uf), data_desejada: b.data_desejada,
         semana: semanaISO(b.data_desejada), qtd, cnh: bool(b.cnh), movel: bool(b.movel), experiencia: bool(b.experiencia),
