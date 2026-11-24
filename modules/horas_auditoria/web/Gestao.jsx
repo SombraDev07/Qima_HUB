@@ -1,7 +1,7 @@
 // Central: planejamentos (safras), distritos e parâmetros (R$ por hora, semanas, divisores). Mostra sempre a versão aprovada.
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Clock, Pencil, Plus, Trash2, Upload } from 'lucide-react';
+import { ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown, Clock, Pencil, Plus, Trash2, Upload } from 'lucide-react';
 import { Button, Card, Empty, Field, Modal, PageHeader, money, num, todayISO, useAction, useConfirm, usePrompt } from '@hub';
 import { Diferenca, GradeHoras, Kpi, MODS, calcular } from './shared.jsx';
 
@@ -47,6 +47,8 @@ export default function Gestao({ api }) {
   const confirmar = useConfirm();
   const perguntar = usePrompt();
   const arq = useRef();
+  const [fechados, setFechados] = useState(() => new Set());
+  const alternar = (id) => setFechados((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
 
   const lerPlanos = async (escolher) => { const l = await api.get('/planejamentos'); setPlanos(l); setPid((p) => String(escolher ?? (l.some((x) => String(x.id) === p) ? p : l[0]?.id ?? ''))); };
   const lerDet = async () => { if (pid) setDet(await api.get(`/planejamentos/${pid}`)); else setDet(null); };
@@ -99,6 +101,8 @@ export default function Gestao({ api }) {
             <span className="ha-sp" />
             <Button variant="outline" onClick={() => setModal({ k: 'editar' })}><Pencil size={15} /> Parâmetros</Button>
             <Button variant="danger" onClick={excluirPlano}><Trash2 size={15} /> Excluir</Button>
+            {det && <><Button variant="outline" onClick={() => setFechados(new Set(det.distritos.map((x) => x.id)))}><ChevronsDownUp size={15} /> Minimizar todos</Button>
+              <Button variant="outline" onClick={() => setFechados(new Set())}><ChevronsUpDown size={15} /> Expandir todos</Button></>}
             <Button onClick={novoDistrito}><Plus size={15} /> Distrito</Button>
           </div>
           {p && <div className="ha-kpis"><Kpi rotulo="Horas aprovadas" valor={`${num(p.horas)} h`} /><Kpi rotulo="Budget aprovado" valor={money(p.budget)} /><Kpi rotulo="Budget programado" valor={money(p.prog)} /><Kpi rotulo="Diferença" valor={<Diferenca dif={p.prog - p.budget} prog={p.prog} />} /><Kpi rotulo="Aguardando aprovação" valor={p.pendentes} tom={p.pendentes ? 'azul' : undefined} /></div>}
@@ -106,11 +110,16 @@ export default function Gestao({ api }) {
             const c = calcular(det.plano, d.aprovada.horas, d.aprovada.prog);
             return (
               <Card key={d.id} className="ha-card">
-                <div className="ha-card-top"><h2>{d.nome}</h2><Diferenca dif={c.dif} prog={c.prog} /><span className="ha-sp" />
+                <div className="ha-card-top">
+                  <button type="button" className="btn btn-outline" style={{ padding: '4px 8px' }} onClick={() => alternar(d.id)} aria-expanded={!fechados.has(d.id)} title={fechados.has(d.id) ? 'Expandir' : 'Minimizar'}>{fechados.has(d.id) ? <ChevronRight size={16} /> : <ChevronDown size={16} />}</button>
+                  <h2>{d.nome}</h2><Diferenca dif={c.dif} prog={c.prog} />
+                  {fechados.has(d.id) && <span className="muted small">{num(c.horas)} h · {money(c.budget)}</span>}<span className="ha-sp" />
                   <Button onClick={() => navigate(`/m/horas_auditoria/solicitante?p=${pid}&d=${d.id}`)}><Clock size={15} /> Lançar horas</Button>
                   <Button variant="outline" onClick={() => renomear(d)}>Renomear</Button><Button variant="danger" onClick={() => remover(d)}>Remover</Button></div>
+                {!fechados.has(d.id) && <>
                 <GradeHoras plano={det.plano} horas={d.aprovada.horas} prog={d.aprovada.prog} disabled />
                 <div className="ha-rodape"><div><small>Horas</small><b>{num(c.horas)} h</b></div><div><small>Budget (R$)</small><b>{money(c.budget)}</b></div><div><small>Budget programado</small><b>{money(c.prog)}</b></div></div>
+                </>}
               </Card>
             );
           })}
