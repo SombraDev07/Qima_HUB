@@ -1,5 +1,6 @@
 // Central: planejamentos (safras), distritos e parâmetros (R$ por hora, semanas, divisores). Mostra sempre a versão aprovada.
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { DistritoCard } from './Planejamento.jsx';
 import { useNavigate } from 'react-router-dom';
 import { ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown, Clock, Pencil, Plus, Trash2, Upload } from 'lucide-react';
 import { Button, Card, Empty, Field, Modal, PageHeader, money, num, todayISO, useAction, useConfirm, usePrompt } from '@hub';
@@ -51,7 +52,10 @@ export default function Gestao({ api }) {
   const alternar = (id) => setFechados((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
 
   const lerPlanos = async (escolher) => { const l = await api.get('/planejamentos'); setPlanos(l); setPid((p) => String(escolher ?? (l.some((x) => String(x.id) === p) ? p : l[0]?.id ?? ''))); };
-  const lerDet = async () => { if (pid) setDet(await api.get(`/planejamentos/${pid}`)); else setDet(null); };
+  const [gen, setGen] = useState(0);
+  const lerDet = async () => { if (pid) { setDet(await api.get(`/planejamentos/${pid}`)); setGen((g) => g + 1); } else setDet(null); };
+  const atualizar = useCallback((id, v) => setDet((x) => x && ({ ...x, distritos: x.distritos.map((d) => (d.id === id ? { ...d, aberta: v } : d)) })), []);
+  const recarregar = () => { lerDet(); lerPlanos(); };
   const [erro, setErro] = useState('');
   useEffect(() => { api.get('/config').then(setCfg).catch((e) => setErro(e.message)); lerPlanos().catch((e) => setErro(e.message)); }, []);
   useEffect(() => { setDet(null); lerDet(); }, [pid]);
@@ -106,23 +110,10 @@ export default function Gestao({ api }) {
             <Button onClick={novoDistrito}><Plus size={15} /> Distrito</Button>
           </div>
           {p && <div className="ha-kpis"><Kpi rotulo="Horas aprovadas" valor={`${num(p.horas)} h`} /><Kpi rotulo="Budget aprovado" valor={money(p.budget)} /><Kpi rotulo="Budget programado" valor={money(p.prog)} /><Kpi rotulo="Diferença" valor={<Diferenca dif={p.prog - p.budget} prog={p.prog} />} /><Kpi rotulo="Aguardando aprovação" valor={p.pendentes} tom={p.pendentes ? 'azul' : undefined} /></div>}
-          {!det ? <Empty>Carregando…</Empty> : !det.distritos.length ? <Empty>Sem distritos. Use “+ Distrito”.</Empty> : det.distritos.map((d) => {
-            const c = calcular(det.plano, d.aprovada.horas, d.aprovada.prog);
-            return (
-              <Card key={d.id} className="ha-card">
-                <div className="ha-card-top">
-                  <button type="button" className="btn btn-outline" style={{ padding: '4px 8px' }} onClick={() => alternar(d.id)} aria-expanded={!fechados.has(d.id)} title={fechados.has(d.id) ? 'Expandir' : 'Minimizar'}>{fechados.has(d.id) ? <ChevronRight size={16} /> : <ChevronDown size={16} />}</button>
-                  <h2>{d.nome}</h2><Diferenca dif={c.dif} prog={c.prog} />
-                  {fechados.has(d.id) && <span className="muted small">{num(c.horas)} h · {money(c.budget)}</span>}<span className="ha-sp" />
-                  <Button onClick={() => navigate(`/m/horas_auditoria/solicitante?p=${pid}&d=${d.id}`)}><Clock size={15} /> Lançar horas</Button>
-                  <Button variant="outline" onClick={() => renomear(d)}>Renomear</Button><Button variant="danger" onClick={() => remover(d)}>Remover</Button></div>
-                {!fechados.has(d.id) && <>
-                <GradeHoras plano={det.plano} horas={d.aprovada.horas} prog={d.aprovada.prog} disabled />
-                <div className="ha-rodape"><div><small>Horas</small><b>{num(c.horas)} h</b></div><div><small>Budget (R$)</small><b>{money(c.budget)}</b></div><div><small>Budget programado</small><b>{money(c.prog)}</b></div></div>
-                </>}
-              </Card>
-            );
-          })}
+          {!det ? <Empty>Carregando…</Empty> : !det.distritos.length ? <Empty>Sem distritos. Use “+ Distrito”.</Empty> : det.distritos.map((d) => (
+            <DistritoCard key={`${d.id}-${gen}`} api={api} plano={det.plano} d={d} onAtualizar={atualizar} onRecarregar={recarregar} fechado={fechados.has(d.id)} onAlternar={() => alternar(d.id)}
+              extra={<><Button variant="outline" onClick={() => renomear(d)}>Renomear</Button><Button variant="danger" onClick={() => remover(d)}>Remover</Button></>} />
+          ))}
         </>
       )}
       {modal?.k === 'novo' && <PlanoModal taxasPadrao={cfg.taxas_padrao} onClose={() => setModal(null)} onSalvar={async (b) => { const x = await api.post('/central/planejamentos', b); await lerPlanos(x.id); }} />}

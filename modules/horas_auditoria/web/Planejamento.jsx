@@ -6,7 +6,7 @@ import { Button, Card, Empty, PageHeader, fmtDateTime, money, num, parseMoney, u
 import { Diferenca, GradeHoras, Kpi, Status, calcular, clone, statusDe } from './shared.jsx';
 
 /** Um distrito: edita o rascunho (ou mostra o aprovado) e envia. */
-function DistritoCard({ api, plano, d, onAtualizar, onRecarregar, fechado, onAlternar }) {
+export function DistritoCard({ api, plano, d, onAtualizar, onRecarregar, fechado, onAlternar, extra }) {
   const toast = useToast();
   const confirmar = useConfirm();
   const perguntar = usePrompt();
@@ -82,6 +82,7 @@ function DistritoCard({ api, plano, d, onAtualizar, onRecarregar, fechado, onAlt
           {ehCentral && <Button variant="outline" onClick={aplicar} disabled={busy}><Check size={15} /> Aplicar direto</Button>}
           <Button onClick={enviar} disabled={busy}><Send size={15} /> Enviar para aprovação</Button>
         </>}
+        {extra}
       </div>
       {!fechado && <>
       {st === 'reprovado' && <div className="ha-aviso ha-aviso-ruim"><b>Pedido reprovado por {d.aberta.decidido_por || 'Central'}</b> em {fmtDateTime(d.aberta.decidido_em)} · solicitado por <b>{d.aberta.por}</b><br /><b>Motivo:</b> {d.aberta.motivo}<br />A versão aprovada continua valendo. Qualquer planejador pode ajustar abaixo e enviar de novo.</div>}
