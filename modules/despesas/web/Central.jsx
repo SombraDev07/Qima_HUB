@@ -286,7 +286,7 @@ function PedidoCentral({ module, api }) {
               <Button className="btn-sm" onClick={aprovarTudo} disabled={busy}><CheckCheck size={14} /> Aprovar pendentes</Button>
             </>}
             <a className="btn btn-outline btn-sm" href={`/api/m/${module.key}/central/pedidos/${p.id}/zip`}><Download size={14} /> Baixar pedido (ZIP)</a>
-            <a className="btn btn-outline btn-sm" href={`/api/m/${module.key}/central/pedidos/${p.id}/pdf`} title="Todas as fotos e notas do pedido num PDF só"><FileText size={14} /> Baixar PDF</a>
+            {nOk > 0 && <a className="btn btn-outline btn-sm" href={`/api/m/${module.key}/central/pedidos/${p.id}/pdf`} title="As notas aprovadas do pedido num PDF só (recusadas e em análise não entram)"><FileText size={14} /> Baixar PDF</a>}
           </div>
         </div>
         {p.obs_solicitante && <div className="dp-info small"><b>Obs. do colaborador:</b> {p.obs_solicitante}</div>}

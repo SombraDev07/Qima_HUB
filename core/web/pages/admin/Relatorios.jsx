@@ -1,7 +1,8 @@
 // Administração › Relatórios: um Excel por sistema (abas Solicitante e Central) com filtro de datas.
 import { useEffect, useState } from 'react';
-import { Download, FileSpreadsheet, CalendarRange } from 'lucide-react';
+import { Download, FileSpreadsheet, CalendarRange, FileText } from 'lucide-react';
 import { api } from '../../shared/api.js';
+import { useAuth } from '../../auth.jsx';
 import { Alert, Button, Card } from '../../shared/ui.jsx';
 import { ModuleIcon } from '../../shared/icons.jsx';
 
@@ -24,6 +25,19 @@ export default function Relatorios({ rota = '/api/admin/relatorios' }) {
   const [atalho, setAtalho] = useState('mes');
   const [erro, setErro] = useState('');
   useEffect(() => { api(rota).then(setSistemas).catch((e) => setErro(e.message)); }, [rota]);
+  // PDF das notas pagas do Despesas: só para quem é Central do Despesas (a rota é do próprio sistema)
+  const { modules } = useAuth();
+  const centralDespesas = (modules || []).some((m) => m.key === 'despesas' && ['central', 'ambos'].includes(m.role));
+  const [gerando, setGerando] = useState(false);
+  const pdfPagos = async () => {
+    if (!valido) return setErro('Confira o período: a data final não pode ser antes da inicial.');
+    setErro(''); setGerando(true);
+    const q = `de=${de}&ate=${ate}`;
+    try {
+      await api(`/api/m/despesas/central/pagos.pdf?${q}&checar=1`); // mostra aqui o erro (sem pagos, período grande) antes de baixar
+      window.location.href = `/api/m/despesas/central/pagos.pdf?${q}`;
+    } catch (e) { setErro(e.message); } finally { setTimeout(() => setGerando(false), 4000); }
+  };
 
   const valido = de && ate && ate >= de;
   const baixar = (key) => {
@@ -64,6 +78,11 @@ export default function Relatorios({ rota = '/api/admin/relatorios' }) {
               {s.key === 'solicitacoes' && <li>Inclui a conversa completa de cada solicitação</li>}
             </ul>
             <Button variant="outline" onClick={() => baixar(s.key)} disabled={!valido}><Download size={15} /> Baixar Excel</Button>
+            {s.key === 'despesas' && centralDespesas && <>
+              <Button variant="outline" onClick={pdfPagos} disabled={!valido || gerando} title="Fotos das notas aprovadas de todos os reembolsos pagos no período (pela data do pagamento), com o total por categoria">
+                <FileText size={15} /> {gerando ? 'Gerando PDF…' : 'PDF das notas pagas'}</Button>
+              <span className="muted small">PDF: pela data do pagamento, de todos os colaboradores</span>
+            </>}
           </Card>
         ))}
       </div>

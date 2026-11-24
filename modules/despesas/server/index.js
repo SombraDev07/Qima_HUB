@@ -482,80 +482,154 @@ export default {
       await arquivos.entregarDownload(res, `${p.codigo}.zip`, files.zip(entradas));
     }));
 
-    // PDF do pedido: uma capa com o resumo e depois todas as notas (fotos e PDFs) na ordem, uma por página
-    r.get('/central/pedidos/:id/pdf', cen, ler(async (req, res) => {
-      const p = await getPedido(db, req.params.id);
-      const notas = await db.all("SELECT * FROM despesas_notas WHERE pedido_id = ? AND status <> 'cancelada' AND status <> 'substituida' ORDER BY id", p.id);
-      const conteudos = await arquivos.lerVarios(notas.map((n) => n.arquivo));
+    // ------------------------------------------------------------ PDF (capa do pedido + uma página por nota)
+    const A4 = [595.28, 841.89];
+    const MARGEM = 40;
+    const MAX_NOTAS_PDF = 400; // acima disso o arquivo fica grande demais para baixar de uma vez
+    /** Monta um PDF. grupos = [{ p, notas }]. resumo (opcional) = página inicial com a lista dos pedidos. */
+    async function montarPdf(grupos, { titulo, resumo }) {
       const doc = await PDFDocument.create();
-      doc.setTitle(`${p.codigo} - ${p.solicitante_nome}`);
+      doc.setTitle(titulo);
       const fonte = await doc.embedFont(StandardFonts.Helvetica);
       const negrito = await doc.embedFont(StandardFonts.HelveticaBold);
       // a fonte padrão do PDF só tem o alfabeto latino: troca o resto para não quebrar a geração
-      const txt = (s) => String(s ?? '').replace(/[^\x20-\x7E -ÿ]/g, '?');
-      const A4 = [595.28, 841.89];
-      const M = 40;
-      const escrever = (pg, s, x, y, tam = 10, f = fonte, cor = rgb(0.15, 0.15, 0.15)) => pg.drawText(txt(s), { x, y, size: tam, font: f, color: cor });
-
-      // capa
-      const capa = doc.addPage(A4);
-      let y = A4[1] - M - 10;
-      escrever(capa, `Reembolso ${p.codigo}`, M, y, 20, negrito, rgb(0.894, 0, 0.169)); y -= 26;
-      const linhasCapa = [
-        ['Colaborador', `${p.solicitante_nome}${p.solicitante_email ? ` (${p.solicitante_email})` : ''}`],
-        ['Enviado em', brDate(p.created_at.slice(0, 10))],
-        ['Status', STATUS_LABEL[p.status] || p.status],
-        ['PIX', `${p.pix_tipo || ''}: ${p.pix_chave || ''}`],
-        ['Total declarado', brMoney(p.total_declarado)],
-        ['Total aprovado', brMoney(p.total_aprovado)],
-        ...(p.pago_em ? [['Pago em', brDate(p.pago_em)], ['Taxa do pagamento', `${brMoney(p.pagamento_taxa || 0)}${p.pagamento_taxa_obs ? ` (${p.pagamento_taxa_obs})` : ''}`],
-          ['Total pago', brMoney(p.total_aprovado + (p.pagamento_taxa || 0))]] : []),
-      ];
-      for (const [k, v] of linhasCapa) { escrever(capa, `${k}:`, M, y, 11, negrito); escrever(capa, v, M + 120, y, 11); y -= 17; }
-      y -= 10;
-      escrever(capa, `Notas (${notas.length})`, M, y, 13, negrito); y -= 18;
-      for (const n of notas) {
-        if (y < M) break;
-        escrever(capa, `${n.codigo} · ${n.data ? brDate(n.data) : '-'} · ${n.tipo || '-'} · ${brMoney(n.valor || 0)} · ${NOTA_LABEL[n.status] || n.status}`, M, y, 9.5);
-        y -= 14;
-      }
-
-      // uma página por nota: cabeçalho com os dados e a foto ajustada ao espaço
-      const cabecalho = (pg, n, extra = '') => {
-        const [w, h] = [pg.getWidth(), pg.getHeight()];
-        pg.drawRectangle({ x: 0, y: h - 34, width: w, height: 34, color: rgb(1, 1, 1), opacity: 0.92 });
-        escrever(pg, `${p.codigo} · ${n.codigo} · ${n.data ? brDate(n.data) : '-'} · ${n.tipo || '-'} · ${brMoney(n.valor || 0)} · ${NOTA_LABEL[n.status] || n.status}${extra}`,
-          12, h - 22, 9.5, negrito);
+      const txt = (v) => String(v ?? '').replace(/[^\x20-\x7E\u00A0-\u00FF]/g, '?');
+      const escrever = (pg, v, x, y, tam = 10, f = fonte, cor = rgb(0.15, 0.15, 0.15)) => pg.drawText(txt(v), { x, y, size: tam, font: f, color: cor });
+      const VERMELHO = rgb(0.894, 0, 0.169);
+      const M = MARGEM;
+      const linhaNota = (n) => `${n.codigo} · ${n.data ? brDate(n.data) : '-'} · ${n.tipo || '-'} · ${brMoney((n.status === 'ok' ? n.valor_aprovado : n.valor) || 0)} · ${NOTA_LABEL[n.status] || n.status}`;
+      const totalPago = (p) => p.total_aprovado + (p.pagamento_taxa || 0);
+      /** "Total por categoria": uma linha por tipo de despesa com as notas aprovadas e o valor aprovado. Devolve o novo y. */
+      const porCategoria = (pg, notas, y) => {
+        const mapa = new Map();
+        for (const n of notas.filter((x) => x.status === 'ok')) {
+          const k = n.tipo || 'Sem categoria';
+          const c = mapa.get(k) || { qtd: 0, total: 0 };
+          c.qtd += 1; c.total += Number(n.valor_aprovado || 0);
+          mapa.set(k, c);
+        }
+        if (!mapa.size) return y;
+        escrever(pg, 'Total por categoria (notas aprovadas)', M, y, 13, negrito); y -= 18;
+        const linhas = [...mapa.entries()].sort((a, b) => b[1].total - a[1].total);
+        for (const [k, c] of linhas) {
+          escrever(pg, k, M, y, 10.5); escrever(pg, `${c.qtd} nota(s)`, M + 260, y, 10.5);
+          const v = brMoney(c.total); escrever(pg, v, A4[0] - M - negrito.widthOfTextAtSize(txt(v), 10.5), y, 10.5, negrito);
+          y -= 15;
+        }
+        const soma = brMoney(linhas.reduce((s, [, c]) => s + c.total, 0));
+        pg.drawLine({ start: { x: M, y: y + 10 }, end: { x: A4[0] - M, y: y + 10 }, thickness: 0.5, color: rgb(0.7, 0.7, 0.7) });
+        escrever(pg, 'Total', M, y - 2, 10.5, negrito); escrever(pg, soma, A4[0] - M - negrito.widthOfTextAtSize(txt(soma), 10.5), y - 2, 10.5, negrito);
+        return y - 26;
       };
-      for (let i = 0; i < notas.length; i++) {
-        const n = notas[i];
-        const buf = conteudos[i];
-        try {
-          if (!buf) throw new Error('arquivo não encontrado');
-          if (n.mime === 'application/pdf') {
-            const origem = await PDFDocument.load(buf, { ignoreEncryption: true });
-            const paginas = await doc.copyPages(origem, origem.getPageIndices());
-            paginas.forEach((pg, k) => { doc.addPage(pg); cabecalho(pg, n, paginas.length > 1 ? ` · pág. ${k + 1}/${paginas.length}` : ''); });
-            continue;
-          }
-          if (!['image/jpeg', 'image/png'].includes(n.mime)) throw new Error('formato sem suporte no PDF (veja o ZIP)');
-          const img = n.mime === 'image/png' ? await doc.embedPng(buf) : await doc.embedJpg(buf);
-          const pg = doc.addPage(A4);
-          const areaW = A4[0] - 2 * M;
-          const areaH = A4[1] - 2 * M - 30;
-          const escala = Math.min(areaW / img.width, areaH / img.height, 1.5);
-          const w = img.width * escala;
-          const h = img.height * escala;
-          pg.drawImage(img, { x: (A4[0] - w) / 2, y: M + (areaH - h) / 2, width: w, height: h });
-          cabecalho(pg, n);
-        } catch (e) {
-          const pg = doc.addPage(A4);
-          cabecalho(pg, n);
-          escrever(pg, `Não foi possível incluir este arquivo: ${e.message}.`, M, A4[1] / 2, 12, fonte, rgb(0.7, 0.1, 0.1));
+
+      if (resumo) {
+        let pg = doc.addPage(A4);
+        let y = A4[1] - M - 10;
+        escrever(pg, resumo.titulo, M, y, 18, negrito, VERMELHO); y -= 22;
+        for (const l of resumo.linhas) { escrever(pg, l, M, y, 10.5); y -= 15; }
+        y -= 8;
+        y = porCategoria(pg, grupos.flatMap((g) => g.notas), y);
+        escrever(pg, 'Pedido · Colaborador · Pago em · Aprovado · Taxa · Total pago · Notas', M, y, 9.5, negrito); y -= 15;
+        for (const { p, notas } of grupos) {
+          if (y < M) { pg = doc.addPage(A4); y = A4[1] - M; }
+          escrever(pg, `${p.codigo} · ${p.solicitante_nome} · ${p.pago_em ? brDate(p.pago_em) : '-'} · ${brMoney(p.total_aprovado)} · ${brMoney(p.pagamento_taxa || 0)} · ${brMoney(totalPago(p))} · ${notas.length}`, M, y, 9.5);
+          y -= 13;
         }
       }
-      const pdf = Buffer.from(await doc.save());
+
+      for (const { p, notas } of grupos) {
+        // capa do pedido
+        const capa = doc.addPage(A4);
+        let y = A4[1] - M - 10;
+        escrever(capa, `Reembolso ${p.codigo}`, M, y, 20, negrito, VERMELHO); y -= 26;
+        const linhasCapa = [
+          ['Colaborador', `${p.solicitante_nome}${p.solicitante_email ? ` (${p.solicitante_email})` : ''}`],
+          ['Enviado em', brDate(p.created_at.slice(0, 10))],
+          ['Status', STATUS_LABEL[p.status] || p.status],
+          ['PIX', `${p.pix_tipo || ''}: ${p.pix_chave || ''}`],
+          ['Total declarado', brMoney(p.total_declarado)],
+          ['Total aprovado', brMoney(p.total_aprovado)],
+          ...(p.pago_em ? [['Pago em', brDate(p.pago_em)], ['Taxa do pagamento', `${brMoney(p.pagamento_taxa || 0)}${p.pagamento_taxa_obs ? ` (${p.pagamento_taxa_obs})` : ''}`],
+            ['Total pago', brMoney(totalPago(p))]] : []),
+        ];
+        for (const [k, v] of linhasCapa) { escrever(capa, `${k}:`, M, y, 11, negrito); escrever(capa, v, M + 120, y, 11); y -= 17; }
+        y -= 10;
+        y = porCategoria(capa, notas, y);
+        escrever(capa, `Notas aprovadas (${notas.length})`, M, y, 13, negrito); y -= 18;
+        for (const n of notas) { if (y < M) break; escrever(capa, linhaNota(n), M, y, 9.5); y -= 14; }
+
+        // uma página por nota: cabeçalho com os dados e a foto ajustada ao espaço
+        const cabecalho = (pg, n, extra = '') => {
+          const [w, h] = [pg.getWidth(), pg.getHeight()];
+          pg.drawRectangle({ x: 0, y: h - 34, width: w, height: 34, color: rgb(1, 1, 1), opacity: 0.92 });
+          escrever(pg, `${p.codigo} · ${p.solicitante_nome} · ${linhaNota(n)}${extra}`, 12, h - 22, 9.5, negrito);
+        };
+        const conteudos = await arquivos.lerVarios(notas.map((n) => n.arquivo));
+        for (let i = 0; i < notas.length; i++) {
+          const n = notas[i];
+          const buf = conteudos[i];
+          try {
+            if (!buf) throw new Error('arquivo não encontrado');
+            if (n.mime === 'application/pdf') {
+              const origem = await PDFDocument.load(buf, { ignoreEncryption: true });
+              const paginas = await doc.copyPages(origem, origem.getPageIndices());
+              paginas.forEach((pg, k) => { doc.addPage(pg); cabecalho(pg, n, paginas.length > 1 ? ` · pág. ${k + 1}/${paginas.length}` : ''); });
+              continue;
+            }
+            if (!['image/jpeg', 'image/png'].includes(n.mime)) throw new Error('formato sem suporte no PDF (veja o ZIP)');
+            const img = n.mime === 'image/png' ? await doc.embedPng(buf) : await doc.embedJpg(buf);
+            const pg = doc.addPage(A4);
+            const areaW = A4[0] - 2 * M;
+            const areaH = A4[1] - 2 * M - 30;
+            const escala = Math.min(areaW / img.width, areaH / img.height, 1.5);
+            const w = img.width * escala;
+            const h = img.height * escala;
+            pg.drawImage(img, { x: (A4[0] - w) / 2, y: M + (areaH - h) / 2, width: w, height: h });
+            cabecalho(pg, n);
+          } catch (e) {
+            const pg = doc.addPage(A4);
+            cabecalho(pg, n);
+            escrever(pg, `Não foi possível incluir este arquivo: ${e.message}.`, M, A4[1] / 2, 12, fonte, rgb(0.7, 0.1, 0.1));
+          }
+        }
+      }
+      return Buffer.from(await doc.save());
+    }
+
+    // PDF de um pedido: capa e as notas APROVADAS (fotos e PDFs), uma por página. Recusadas e em análise não entram.
+    r.get('/central/pedidos/:id/pdf', cen, ler(async (req, res) => {
+      const p = await getPedido(db, req.params.id);
+      const notas = await db.all("SELECT * FROM despesas_notas WHERE pedido_id = ? AND status = 'ok' ORDER BY id", p.id);
+      if (!notas.length) throw new RuleError(`${p.codigo} ainda não tem nota aprovada para o PDF.`);
+      const pdf = await montarPdf([{ p, notas }], { titulo: `${p.codigo} - ${p.solicitante_nome}` });
       await arquivos.entregarDownload(res, `${p.codigo}.pdf`, pdf, 'application/pdf');
+    }));
+
+    // PDF dos pagos no período (pela data do pagamento), de todos os colaboradores: só as notas aprovadas (as que foram pagas)
+    r.get('/central/pagos.pdf', cen, ler(async (req, res) => {
+      const { de, ate } = req.query;
+      if (!isDate(de) || !isDate(ate)) throw new RuleError('Informe as datas de e até.');
+      if (ate < de) throw new RuleError('A data final é antes da inicial.');
+      const pedidos = await db.all("SELECT * FROM despesas_pedidos WHERE pago_em BETWEEN ? AND ? AND status IN ('aprovado','parcial') ORDER BY pago_em, id", de, ate);
+      if (!pedidos.length) throw new RuleError(`Nenhum reembolso pago entre ${brDate(de)} e ${brDate(ate)}.`);
+      const notas = await db.all(`SELECT * FROM despesas_notas WHERE pedido_id IN (${ids(pedidos.map((p) => p.id))}) AND status = 'ok' ORDER BY pedido_id, id`);
+      if (notas.length > MAX_NOTAS_PDF) throw new RuleError(`São ${notas.length} notas nesse período (máximo ${MAX_NOTAS_PDF} por PDF). Escolha um período menor.`);
+      // ?checar=1: só confere (a tela mostra o erro antes de abrir o download)
+      if (req.query.checar) return res.json({ pedidos: pedidos.length, notas: notas.length });
+      const grupos = pedidos.map((p) => ({ p, notas: notas.filter((n) => n.pedido_id === p.id) }));
+      const aprovado = pedidos.reduce((s, p) => s + p.total_aprovado, 0);
+      const taxas = pedidos.reduce((s, p) => s + (p.pagamento_taxa || 0), 0);
+      const periodo = de === ate ? brDate(de) : `${brDate(de)} a ${brDate(ate)}`;
+      const pdf = await montarPdf(grupos, {
+        titulo: `Reembolsos pagos ${periodo}`,
+        resumo: {
+          titulo: `Reembolsos pagos · ${periodo}`,
+          linhas: [`${pedidos.length} pedido(s) · ${notas.length} nota(s) aprovada(s)`,
+            `Total aprovado ${brMoney(aprovado)} · Taxas ${brMoney(taxas)} · Total pago ${brMoney(aprovado + taxas)}`,
+            `Gerado em ${new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })} por ${req.user.name}`],
+        },
+      });
+      await arquivos.entregarDownload(res, `reembolsos-pagos_${de}_a_${ate}.pdf`, pdf, 'application/pdf');
     }));
 
     // Excel geral (financeiro): todas as notas dos pedidos filtrados
