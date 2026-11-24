@@ -17,6 +17,7 @@
   "dependencies": {
     "@vercel/analytics": "^2.0.1",
     "express": "^4.21.2",
+    "pdf-lib": "^1.17.1",
     "postgres": "^4.1.1"
   },
   "devDependencies": {

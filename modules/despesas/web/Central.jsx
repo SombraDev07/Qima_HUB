@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Route, Routes, useNavigate, useParams } from 'react-router-dom';
-import { Check, X, Download, AlertTriangle, CheckCircle2, RotateCcw, Pencil, CheckCheck, Copy, FileSpreadsheet, Undo2 } from 'lucide-react';
+import { Check, X, Download, AlertTriangle, CheckCircle2, RotateCcw, Pencil, CheckCheck, Copy, FileSpreadsheet, Undo2, FileText } from 'lucide-react';
 import {
   Alert, Badge, Button, Card, Empty, Field, PageHeader, FiltroSelect, Modal,
   fmtDate, fmtDateTime, money, norm, parseMoney, todayISO, uniq, useAction, useToast, useConfirm, usePrompt,
@@ -209,6 +209,15 @@ function NotaAnalise({ module, api, cfg, nota, indice, aberto, onReload }) {
   );
 }
 
+/** Taxa digitada ("2,50", "1.234,56" ou vazio = 0). Devolve null quando não é um valor válido. */
+function valorTaxa(s) {
+  const t = String(s || '').trim().replace(/^R\$\s*/i, '');
+  if (!t) return 0;
+  if (!/^\d{1,3}(\.\d{3})*(,\d{1,2})?$|^\d+([.,]\d{1,2})?$/.test(t)) return null;
+  const n = Number(t.includes(',') ? t.replace(/\./g, '').replace(',', '.') : t);
+  return Number.isFinite(n) && n >= 0 && n <= 100000 ? Math.round(n * 100) / 100 : null;
+}
+
 // =========================================================================== pedido (análise)
 function PedidoCentral({ module, api }) {
   const { id } = useParams();
@@ -217,6 +226,8 @@ function PedidoCentral({ module, api }) {
   const [erro, setErro] = useState('');
   const [obs, setObs] = useState('');
   const [pago, setPago] = useState(todayISO());
+  const [taxa, setTaxa] = useState('');
+  const [taxaObs, setTaxaObs] = useState('');
   const [run, busy] = useAction();
   const toast = useToast();
   const confirmar = useConfirm();
@@ -243,7 +254,12 @@ function PedidoCentral({ module, api }) {
     if (motivo && await run(() => api.post(`/central/pedidos/${p.id}/reprovar-tudo`, { motivo }), 'Notas recusadas')) load();
   };
   const salvarObs = async () => { if (await run(() => api.put(`/central/pedidos/${p.id}/obs`, { obs_central: obs }), 'Observação salva (o colaborador vê no pedido)')) load(); };
-  const pagar = async (data) => { if (await run(() => api.post(`/central/pedidos/${p.id}/pagamento`, { pago_em: data }), data ? 'Pagamento registrado' : 'Pagamento desfeito')) load(); };
+  const taxaNum = valorTaxa(taxa);
+  const pagar = async (data) => {
+    if (data && taxaNum === null) { toast('Taxa inválida. Use só números, ex.: 2,50'); return; }
+    const corpo = data ? { pago_em: data, taxa: taxaNum, taxa_obs: taxaObs } : { pago_em: null };
+    if (await run(() => api.post(`/central/pedidos/${p.id}/pagamento`, corpo), data ? 'Pagamento registrado' : 'Pagamento desfeito')) { setTaxa(''); setTaxaObs(''); load(); }
+  };
 
   return (
     <>
@@ -270,6 +286,7 @@ function PedidoCentral({ module, api }) {
               <Button className="btn-sm" onClick={aprovarTudo} disabled={busy}><CheckCheck size={14} /> Aprovar pendentes</Button>
             </>}
             <a className="btn btn-outline btn-sm" href={`/api/m/${module.key}/central/pedidos/${p.id}/zip`}><Download size={14} /> Baixar pedido (ZIP)</a>
+            <a className="btn btn-outline btn-sm" href={`/api/m/${module.key}/central/pedidos/${p.id}/pdf`} title="Todas as fotos e notas do pedido num PDF só"><FileText size={14} /> Baixar PDF</a>
           </div>
         </div>
         {p.obs_solicitante && <div className="dp-info small"><b>Obs. do colaborador:</b> {p.obs_solicitante}</div>}
@@ -279,9 +296,16 @@ function PedidoCentral({ module, api }) {
         </div>
         {['aprovado', 'parcial'].includes(p.status) && (
           <div className="dp-pag">
-            {p.pago_em ? <><CheckCircle2 size={16} className="dp-verde" /> Pago em <b>{fmtDate(p.pago_em)}</b> <button className="dp-link" onClick={() => pagar(null)}>desfazer</button></> : <>
+            {p.pago_em ? <><CheckCircle2 size={16} className="dp-verde" /> Pago em <b>{fmtDate(p.pago_em)}</b>
+              {p.pagamento_taxa > 0 && <span>· {money(p.total_aprovado)} + taxa <b>{money(p.pagamento_taxa)}</b>{p.pagamento_taxa_obs ? ` (${p.pagamento_taxa_obs})` : ''}</span>}
+              <span>· Total pago <b>{money(p.total_aprovado + (p.pagamento_taxa || 0))}</b></span>
+              <button className="dp-link" onClick={() => pagar(null)}>desfazer</button></> : <>
               <span>Pagamento de <b>{money(p.total_aprovado)}</b> via PIX</span>
               <input type="date" value={pago} onChange={(e) => setPago(e.target.value)} />
+              <label className="dp-taxa">Taxa R$ <input inputMode="decimal" placeholder="0,00" value={taxa} onChange={(e) => setTaxa(e.target.value)}
+                className={taxaNum === null ? 'dp-invalido' : ''} /></label>
+              {taxaNum > 0 && <input className="dp-taxa-obs" placeholder="Motivo da taxa (opcional)" value={taxaObs} maxLength={200} onChange={(e) => setTaxaObs(e.target.value)} />}
+              {taxaNum > 0 && <span>Total <b>{money(p.total_aprovado + taxaNum)}</b></span>}
               <Button className="btn-sm" onClick={() => pagar(pago)} disabled={busy}>Registrar pagamento</Button>
             </>}
           </div>
@@ -316,6 +340,8 @@ function Financeiro({ module, api }) {
   const vis = pagaveis.filter((p) => (aba === 'a_pagar' ? !p.pago_em : !!p.pago_em)
     && (!de || p.created_at.slice(0, 10) >= de) && (!ate || p.created_at.slice(0, 10) <= ate));
   const total = vis.reduce((s, p) => s + p.total_aprovado, 0);
+  const pagos = aba === 'pagos';
+  const totalTaxa = vis.reduce((s, p) => s + (p.pagamento_taxa || 0), 0);
   const pagar = async (p) => { if (await run(() => api.post(`/central/pedidos/${p.id}/pagamento`, { pago_em: todayISO() }), `${p.codigo} marcado como pago`)) load(); };
   const exportUrl = `/api/m/${module.key}/central/exportar?${new URLSearchParams({ status: aba, ...(de ? { de } : {}), ...(ate ? { ate } : {}) })}`;
 
@@ -337,7 +363,7 @@ function Financeiro({ module, api }) {
       {lista === null ? <Empty>Carregando…</Empty> : !vis.length ? <Empty>Nada aqui.</Empty> : (
         <Card className="table-card">
           <table className="table dp-table">
-            <thead><tr><th>Pedido</th><th>Colaborador</th><th>PIX</th><th>Analisado em</th><th>Notas</th><th className="num">Aprovado</th><th>{aba === 'pagos' ? 'Pago em' : ''}</th><th /></tr></thead>
+            <thead><tr><th>Pedido</th><th>Colaborador</th><th>PIX</th><th>Analisado em</th><th>Notas</th><th className="num">Aprovado</th>{pagos && <><th className="num">Taxa</th><th className="num">Total pago</th></>}<th>{pagos ? 'Pago em' : ''}</th><th /></tr></thead>
             <tbody>
               {vis.map((p) => (
                 <tr key={p.id}>
@@ -347,15 +373,19 @@ function Financeiro({ module, api }) {
                   <td>{fmtDateTime(p.analisado_at)}</td>
                   <td>{p.n_ok}/{p.n_notas} <PedidoBadge s={p.status} /></td>
                   <td className="num cell-strong">{money(p.total_aprovado)}</td>
+                  {pagos && <><td className="num" title={p.pagamento_taxa_obs || ''}>{p.pagamento_taxa ? money(p.pagamento_taxa) : '—'}</td>
+                    <td className="num cell-strong">{money(p.total_aprovado + (p.pagamento_taxa || 0))}</td></>}
                   <td>{p.pago_em ? fmtDate(p.pago_em) : ''}</td>
                   <td className="row-actions">
                     {!p.pago_em && <Button className="btn-sm" onClick={() => pagar(p)} disabled={busy}><Check size={14} /> Marcar pago hoje</Button>}
                     <a className="icon-btn" title="Baixar ZIP" href={`/api/m/${module.key}/central/pedidos/${p.id}/zip`}><Download size={15} /></a>
+                    <a className="icon-btn" title="Baixar PDF com todas as fotos" href={`/api/m/${module.key}/central/pedidos/${p.id}/pdf`}><FileText size={15} /></a>
                   </td>
                 </tr>
               ))}
             </tbody>
-            <tfoot><tr><td colSpan={5} className="cell-strong">Total ({vis.length})</td><td className="num cell-strong">{money(total)}</td><td colSpan={2} /></tr></tfoot>
+            <tfoot><tr><td colSpan={5} className="cell-strong">Total ({vis.length})</td><td className="num cell-strong">{money(total)}</td>
+              {pagos && <><td className="num cell-strong">{money(totalTaxa)}</td><td className="num cell-strong">{money(total + totalTaxa)}</td></>}<td colSpan={2} /></tr></tfoot>
           </table>
         </Card>
       )}

@@ -8,6 +8,7 @@ import crypto from 'node:crypto';
 import migrations from './migrations.js';
 import relatorio from './relatorio.js';
 import { lerNota } from './ia.js';
+import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import {
   RuleError, isDate, hoje, brDate, brMoney, soDigitos, fmtCnpj, parseValor, codigoPedido, codigoNota, ids,
   config, log, duplicadosDe, alertas, recalcPedido, STATUS_LABEL, NOTA_LABEL,
@@ -396,8 +397,16 @@ export default {
       const { pago_em, obs } = req.body || {};
       if (pago_em && !['aprovado', 'parcial'].includes(p.status)) throw new RuleError('Só pedidos aprovados podem ser pagos.');
       if (pago_em && !isDate(pago_em)) throw new RuleError('Data de pagamento inválida.');
-      await t.run('UPDATE despesas_pedidos SET pago_em = ?, pagamento_obs = ?, updated_at = now() WHERE id = ?', pago_em || null, obs || null, p.id);
-      await log(t, p.id, null, req.user, pago_em ? 'Pagamento registrado' : 'Pagamento desfeito', pago_em ? `${brDate(pago_em)} · ${brMoney(p.total_aprovado)}` : '');
+      // taxa do pagamento (tarifa do banco etc.): soma no total pago; desfazer o pagamento zera
+      const bruta = req.body?.taxa;
+      const taxa = !pago_em || bruta === undefined || bruta === null || bruta === '' ? 0 : (typeof bruta === 'number' ? bruta : parseValor(bruta));
+      if (!(Number.isFinite(taxa) && taxa >= 0 && taxa <= 100000)) throw new RuleError('Taxa inválida.');
+      const taxaR = Math.round(taxa * 100) / 100;
+      const taxaObs = pago_em ? String(req.body?.taxa_obs || '').trim().slice(0, 200) || null : null;
+      await t.run('UPDATE despesas_pedidos SET pago_em = ?, pagamento_obs = ?, pagamento_taxa = ?, pagamento_taxa_obs = ?, updated_at = now() WHERE id = ?',
+        pago_em || null, obs || null, taxaR, taxaObs, p.id);
+      await log(t, p.id, null, req.user, pago_em ? 'Pagamento registrado' : 'Pagamento desfeito', pago_em
+        ? `${brDate(pago_em)} · ${brMoney(p.total_aprovado)}${taxaR ? ` + taxa ${brMoney(taxaR)}${taxaObs ? ` (${taxaObs})` : ''} = ${brMoney(p.total_aprovado + taxaR)}` : ''}` : '');
       if (pago_em) {
         await notify(p.solicitante_email, `Despesas - ${p.codigo}: reembolso pago`,
           HTML(`O reembolso <b>${p.codigo}</b> de <b>${brMoney(p.total_aprovado)}</b> foi pago em ${brDate(pago_em)} via PIX (${esc(p.pix_tipo)}).`), t);
@@ -432,6 +441,10 @@ export default {
       { label: 'Lido pela IA', width: 12 }, { label: 'Editado pela central', width: 12 }, { label: 'Alertas', width: 40 },
       { label: 'Status pedido', width: 16 }, { label: 'PIX tipo', width: 10 }, { label: 'PIX chave', width: 22 }, { label: 'Pago em', width: 12, type: 'date' },
     ];
+    // colunas do pagamento, por pedido (taxa e total pago = aprovado + taxa)
+    const COLS_PAGTO = [{ label: 'Pago em', type: 'date', width: 12 }, { label: 'Taxa pagamento', type: 'money', width: 15 },
+      { label: 'Obs. da taxa', width: 24 }, { label: 'Total pago', type: 'money', width: 15 }];
+    const pagto = (p) => [p.pago_em, p.pago_em ? p.pagamento_taxa || 0 : null, p.pagamento_taxa_obs, p.pago_em ? p.total_aprovado + (p.pagamento_taxa || 0) : null];
     const nomeFoto = (n) => `fotos/${n.codigo}${MIMES[n.mime] || ''}`;
     /** Linhas do Excel para as notas (não canceladas) dos pedidos dados; duplicidade conferida numa consulta só. */
     async function linhasExcel(pedidos) {
@@ -460,12 +473,89 @@ export default {
         { name: 'Notas', columns: COLS, rows },
         { name: 'Pedido', columns: [{ label: 'Pedido' }, { label: 'Colaborador', width: 26 }, { label: 'E-mail', width: 26 }, { label: 'Enviado em', type: 'date', width: 12 },
           { label: 'Status', width: 16 }, { label: 'Total declarado', type: 'money', width: 15 }, { label: 'Total aprovado', type: 'money', width: 15 },
-          { label: 'PIX tipo' }, { label: 'PIX chave', width: 22 }, { label: 'Centro de custo', width: 18 }, { label: 'Obs. central', width: 40 }, { label: 'Pago em', type: 'date', width: 12 }],
+          { label: 'PIX tipo' }, { label: 'PIX chave', width: 22 }, { label: 'Centro de custo', width: 18 }, { label: 'Obs. central', width: 40 },
+          ...COLS_PAGTO],
           rows: [[p.codigo, p.solicitante_nome, p.solicitante_email, p.created_at.slice(0, 10), STATUS_LABEL[p.status],
-            p.total_declarado, p.total_aprovado, p.pix_tipo, p.pix_chave, p.centro_custo, p.obs_central, p.pago_em]] },
+            p.total_declarado, p.total_aprovado, p.pix_tipo, p.pix_chave, p.centro_custo, p.obs_central, ...pagto(p)]] },
       ]);
       entradas.unshift({ name: `${p.codigo}/${p.codigo}.xlsx`, data: xlsx });
       await arquivos.entregarDownload(res, `${p.codigo}.zip`, files.zip(entradas));
+    }));
+
+    // PDF do pedido: uma capa com o resumo e depois todas as notas (fotos e PDFs) na ordem, uma por página
+    r.get('/central/pedidos/:id/pdf', cen, ler(async (req, res) => {
+      const p = await getPedido(db, req.params.id);
+      const notas = await db.all("SELECT * FROM despesas_notas WHERE pedido_id = ? AND status <> 'cancelada' AND status <> 'substituida' ORDER BY id", p.id);
+      const conteudos = await arquivos.lerVarios(notas.map((n) => n.arquivo));
+      const doc = await PDFDocument.create();
+      doc.setTitle(`${p.codigo} - ${p.solicitante_nome}`);
+      const fonte = await doc.embedFont(StandardFonts.Helvetica);
+      const negrito = await doc.embedFont(StandardFonts.HelveticaBold);
+      // a fonte padrão do PDF só tem o alfabeto latino: troca o resto para não quebrar a geração
+      const txt = (s) => String(s ?? '').replace(/[^\x20-\x7E -ÿ]/g, '?');
+      const A4 = [595.28, 841.89];
+      const M = 40;
+      const escrever = (pg, s, x, y, tam = 10, f = fonte, cor = rgb(0.15, 0.15, 0.15)) => pg.drawText(txt(s), { x, y, size: tam, font: f, color: cor });
+
+      // capa
+      const capa = doc.addPage(A4);
+      let y = A4[1] - M - 10;
+      escrever(capa, `Reembolso ${p.codigo}`, M, y, 20, negrito, rgb(0.894, 0, 0.169)); y -= 26;
+      const linhasCapa = [
+        ['Colaborador', `${p.solicitante_nome}${p.solicitante_email ? ` (${p.solicitante_email})` : ''}`],
+        ['Enviado em', brDate(p.created_at.slice(0, 10))],
+        ['Status', STATUS_LABEL[p.status] || p.status],
+        ['PIX', `${p.pix_tipo || ''}: ${p.pix_chave || ''}`],
+        ['Total declarado', brMoney(p.total_declarado)],
+        ['Total aprovado', brMoney(p.total_aprovado)],
+        ...(p.pago_em ? [['Pago em', brDate(p.pago_em)], ['Taxa do pagamento', `${brMoney(p.pagamento_taxa || 0)}${p.pagamento_taxa_obs ? ` (${p.pagamento_taxa_obs})` : ''}`],
+          ['Total pago', brMoney(p.total_aprovado + (p.pagamento_taxa || 0))]] : []),
+      ];
+      for (const [k, v] of linhasCapa) { escrever(capa, `${k}:`, M, y, 11, negrito); escrever(capa, v, M + 120, y, 11); y -= 17; }
+      y -= 10;
+      escrever(capa, `Notas (${notas.length})`, M, y, 13, negrito); y -= 18;
+      for (const n of notas) {
+        if (y < M) break;
+        escrever(capa, `${n.codigo} · ${n.data ? brDate(n.data) : '-'} · ${n.tipo || '-'} · ${brMoney(n.valor || 0)} · ${NOTA_LABEL[n.status] || n.status}`, M, y, 9.5);
+        y -= 14;
+      }
+
+      // uma página por nota: cabeçalho com os dados e a foto ajustada ao espaço
+      const cabecalho = (pg, n, extra = '') => {
+        const [w, h] = [pg.getWidth(), pg.getHeight()];
+        pg.drawRectangle({ x: 0, y: h - 34, width: w, height: 34, color: rgb(1, 1, 1), opacity: 0.92 });
+        escrever(pg, `${p.codigo} · ${n.codigo} · ${n.data ? brDate(n.data) : '-'} · ${n.tipo || '-'} · ${brMoney(n.valor || 0)} · ${NOTA_LABEL[n.status] || n.status}${extra}`,
+          12, h - 22, 9.5, negrito);
+      };
+      for (let i = 0; i < notas.length; i++) {
+        const n = notas[i];
+        const buf = conteudos[i];
+        try {
+          if (!buf) throw new Error('arquivo não encontrado');
+          if (n.mime === 'application/pdf') {
+            const origem = await PDFDocument.load(buf, { ignoreEncryption: true });
+            const paginas = await doc.copyPages(origem, origem.getPageIndices());
+            paginas.forEach((pg, k) => { doc.addPage(pg); cabecalho(pg, n, paginas.length > 1 ? ` · pág. ${k + 1}/${paginas.length}` : ''); });
+            continue;
+          }
+          if (!['image/jpeg', 'image/png'].includes(n.mime)) throw new Error('formato sem suporte no PDF (veja o ZIP)');
+          const img = n.mime === 'image/png' ? await doc.embedPng(buf) : await doc.embedJpg(buf);
+          const pg = doc.addPage(A4);
+          const areaW = A4[0] - 2 * M;
+          const areaH = A4[1] - 2 * M - 30;
+          const escala = Math.min(areaW / img.width, areaH / img.height, 1.5);
+          const w = img.width * escala;
+          const h = img.height * escala;
+          pg.drawImage(img, { x: (A4[0] - w) / 2, y: M + (areaH - h) / 2, width: w, height: h });
+          cabecalho(pg, n);
+        } catch (e) {
+          const pg = doc.addPage(A4);
+          cabecalho(pg, n);
+          escrever(pg, `Não foi possível incluir este arquivo: ${e.message}.`, M, A4[1] / 2, 12, fonte, rgb(0.7, 0.1, 0.1));
+        }
+      }
+      const pdf = Buffer.from(await doc.save());
+      await arquivos.entregarDownload(res, `${p.codigo}.pdf`, pdf, 'application/pdf');
     }));
 
     // Excel geral (financeiro): todas as notas dos pedidos filtrados
@@ -477,9 +567,17 @@ export default {
         .filter((p) => (!st || (st === 'a_pagar' ? ['aprovado', 'parcial'].includes(p.status) && !p.pago_em : st === 'pagos' ? !!p.pago_em : p.status === st))
           && (!de || p.created_at.slice(0, 10) >= de) && (!ate || p.created_at.slice(0, 10) <= ate));
       const { rows } = await linhasExcel(pedidos);
+      // aba "Pedidos": um por linha, com a taxa e o total pago (na aba Notas a taxa repetiria em cada nota)
+      const pedidosRows = pedidos.filter((p) => p.status !== 'cancelado').map((p) => [p.codigo, p.solicitante_nome, p.created_at.slice(0, 10), STATUS_LABEL[p.status],
+        p.total_declarado, p.total_aprovado, p.pix_tipo, p.pix_chave, ...pagto(p)]);
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
       res.setHeader('Content-Disposition', `attachment; filename="despesas-${hoje()}.xlsx"`);
-      res.send(files.xlsx([{ name: 'Notas', columns: COLS, rows }]));
+      res.send(files.xlsx([
+        { name: 'Notas', columns: COLS, rows },
+        { name: 'Pedidos', columns: [{ label: 'Pedido', width: 12 }, { label: 'Colaborador', width: 26 }, { label: 'Enviado em', type: 'date', width: 12 },
+          { label: 'Status', width: 16 }, { label: 'Total declarado', type: 'money', width: 15 }, { label: 'Total aprovado', type: 'money', width: 15 },
+          { label: 'PIX tipo' }, { label: 'PIX chave', width: 22 }, ...COLS_PAGTO], rows: pedidosRows },
+      ]));
     }));
   },
 };

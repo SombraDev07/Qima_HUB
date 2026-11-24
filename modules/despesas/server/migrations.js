@@ -113,4 +113,14 @@ export default [
       `);
     },
   },
+  {
+    // Taxa cobrada no pagamento (ex.: tarifa do banco). Total pago = total aprovado + taxa.
+    version: 3,
+    async up(db) {
+      await db.exec(`
+        ALTER TABLE despesas_pedidos ADD COLUMN IF NOT EXISTS pagamento_taxa NUMERIC(12,2) NOT NULL DEFAULT 0;
+        ALTER TABLE despesas_pedidos ADD COLUMN IF NOT EXISTS pagamento_taxa_obs TEXT;
+      `);
+    },
+  },
 ];

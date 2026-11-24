@@ -98,6 +98,10 @@
 .dp-obs-edit { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: end; }
 .dp-pag { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; background: var(--dp-soft); border-radius: 8px; padding: 10px 12px; font-size: 14px; }
 .dp-pag input { width: auto; }
+.dp-taxa { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; }
+.dp-taxa input { width: 90px; text-align: right; }
+.dp-taxa-obs { min-width: 200px; }
+.dp-invalido { border-color: var(--danger, #dc2626) !important; }
 
 /* central — análise de nota */
 .dp-analise { display: grid; grid-template-columns: minmax(260px, 340px) 1fr; gap: 22px; margin-bottom: 16px; border-color: #f0dfb4; }
