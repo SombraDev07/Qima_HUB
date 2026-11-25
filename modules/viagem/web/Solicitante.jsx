@@ -4,9 +4,9 @@ import { Route, Routes, useNavigate, useParams } from 'react-router-dom';
 import { Plus, Pencil, XCircle, Search, UserPlus, X, Send } from 'lucide-react';
 import {
   Alert, Button, Card, Empty, Field, PageHeader, CidadeInput, cidadeOficial, FiltroSelect, useAction, useConfirm, useToast,
-  fmtDate, fmtCpf, maskCpf, cpfValido, norm, money,
+  fmtDate, maskCpf, cpfValido, norm, money,
 } from '@hub';
-import { STATUS, TRANSPORTE, StatusBadge, IconeTransporte, ResumoViagem, TabelaPassageiros, Passagens, Historico, trecho, fmtTel } from './shared.jsx';
+import { STATUS, TRANSPORTE, StatusBadge, IconeTransporte, ResumoViagem, TabelaPassageiros, Passagens, Historico, trecho } from './shared.jsx';
 
 const hoje = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 
@@ -59,11 +59,16 @@ function MinhasViagens({ api }) {
 }
 
 // =========================================================================== formulário
-const vazio = () => ({ pessoa_id: null, nome: '', cpf: '', rg: '', nascimento: '', email: '', telefone: '', bu: '', poltrona: '' });
-const daPessoa = (p) => ({
-  pessoa_id: p.id || null, nome: p.nome || '', cpf: p.cpf ? maskCpf(p.cpf) : '', rg: p.rg || '', nascimento: p.nascimento || '',
-  email: p.email || '', telefone: p.telefone ? fmtTel(p.telefone) : '', bu: p.bu || '', poltrona: '',
-});
+const DOCS = ['cpf', 'rg', 'nascimento', 'telefone'];
+const vazio = () => ({ pessoa_id: null, nome: '', cpf: '', rg: '', nascimento: '', email: '', telefone: '', bu: '', poltrona: '', guardado: {}, mascara: {} });
+// Pessoa do banco: os documentos já guardados não vêm para a tela (só mascarados); o servidor completa ao enviar.
+const daPessoa = (p) => {
+  const guardado = Object.fromEntries(DOCS.map((k) => [k, !!p[`tem_${k}`]]));
+  return {
+    pessoa_id: p.id || null, nome: p.nome || '', email: p.email || '', bu: p.bu || '', poltrona: '',
+    cpf: '', rg: '', nascimento: '', telefone: '', guardado, mascara: { cpf: p.cpf, rg: p.rg, telefone: p.telefone },
+  };
+};
 const maskTel = (v) => {
   const d = String(v).replace(/\D/g, '').slice(0, 11);
   if (d.length <= 2) return d;
@@ -84,7 +89,7 @@ function BuscaPessoa({ api, onEscolher, onFechar, jaNaLista }) {
   return (
     <Card className="vg-busca">
       <div className="vg-busca-top">
-        <div className="search"><Search size={16} /><input autoFocus placeholder="Buscar no banco de pessoas (nome, e-mail ou CPF)" value={q} onChange={(e) => setQ(e.target.value)} /></div>
+        <div className="search"><Search size={16} /><input autoFocus placeholder="Buscar no banco de pessoas (nome ou e-mail)" value={q} onChange={(e) => setQ(e.target.value)} /></div>
         <Button type="button" variant="outline" onClick={() => onEscolher(null)}><UserPlus size={15} /> Pessoa sem cadastro</Button>
         <button type="button" className="vg-icon-btn" onClick={onFechar} aria-label="Fechar busca"><X size={17} /></button>
       </div>
@@ -94,7 +99,7 @@ function BuscaPessoa({ api, onEscolher, onFechar, jaNaLista }) {
           return (
             <button type="button" key={p.id} className={`vg-pessoa ${p.demitido ? 'vg-demitido' : ''}`} disabled={tem} onClick={() => onEscolher(p)}>
               <b>{p.nome}{p.demitido && <span className="vg-tag-dem">Demitido</span>}{tem && <span className="muted small"> · já na lista</span>}</b>
-              <span className="muted small">{[p.cpf && fmtCpf(p.cpf), p.email, p.funcao, p.cidade].filter(Boolean).join(' · ') || 'Sem detalhes'}</span>
+              <span className="muted small">{[p.cpf, p.email, p.funcao, p.cidade].filter(Boolean).join(' · ') || 'Sem detalhes'}</span>
             </button>
           );
         })}
@@ -108,6 +113,10 @@ function BuscaPessoa({ api, onEscolher, onFechar, jaNaLista }) {
 function CartaoPassageiro({ i, x, bus, onChange, onRemover, podeRemover, eu }) {
   const set = (k, v) => onChange({ ...x, [k]: v });
   const cpfRuim = x.cpf.replace(/\D/g, '').length === 11 && !cpfValido(x.cpf);
+  // documento já guardado no cadastro: mostra mascarado e não deixa trocar (correção de cadastro é com o RH)
+  const noCadastro = (k) => x.guardado?.[k] && (
+    <input value={x.mascara?.[k] || 'Guardado no cadastro'} disabled title="Já está no cadastro. Para corrigir, fale com o RH." />
+  );
   return (
     <div className="vg-pass">
       <div className="vg-pass-head">
@@ -120,14 +129,14 @@ function CartaoPassageiro({ i, x, bus, onChange, onRemover, podeRemover, eu }) {
       <Field label="Nome completo *"><input value={x.nome} onChange={(e) => set('nome', e.target.value)} /></Field>
       <div className="vg-grid-4">
         <Field label="CPF *" hint={cpfRuim ? <span className="vg-err">CPF inválido</span> : null}>
-          <input value={x.cpf} onChange={(e) => set('cpf', maskCpf(e.target.value))} inputMode="numeric" placeholder="000.000.000-00" className={cpfRuim ? 'vg-invalido' : ''} />
+          {noCadastro('cpf') || <input value={x.cpf} onChange={(e) => set('cpf', maskCpf(e.target.value))} inputMode="numeric" placeholder="000.000.000-00" className={cpfRuim ? 'vg-invalido' : ''} />}
         </Field>
-        <Field label="RG *"><input value={x.rg} onChange={(e) => set('rg', e.target.value)} /></Field>
-        <Field label="Data de nascimento *"><input type="date" value={x.nascimento} max={hoje()} onChange={(e) => set('nascimento', e.target.value)} /></Field>
+        <Field label="RG *">{noCadastro('rg') || <input value={x.rg} onChange={(e) => set('rg', e.target.value)} />}</Field>
+        <Field label="Data de nascimento *">{noCadastro('nascimento') || <input type="date" value={x.nascimento} max={hoje()} onChange={(e) => set('nascimento', e.target.value)} />}</Field>
         <Field label="E-mail *"><input type="email" value={x.email} onChange={(e) => set('email', e.target.value)} /></Field>
       </div>
       <div className="vg-grid-4">
-        <Field label="Telefone para contato *"><input value={x.telefone} onChange={(e) => set('telefone', maskTel(e.target.value))} inputMode="tel" placeholder="(00) 00000-0000" /></Field>
+        <Field label="Telefone para contato *">{noCadastro('telefone') || <input value={x.telefone} onChange={(e) => set('telefone', maskTel(e.target.value))} inputMode="tel" placeholder="(00) 00000-0000" />}</Field>
         <div className="vg-span-2">
           <Field label="BU *">
             <select value={x.bu} onChange={(e) => set('bu', e.target.value)}>
@@ -177,7 +186,7 @@ function PedidoForm({ module, api }) {
   }, [id]);
 
   const editavel = !id || ['pendente', 'recusado'].includes(orig?.status);
-  const jaNaLista = (p) => f.passageiros.some((x) => (x.pessoa_id && x.pessoa_id === p.id) || (p.cpf && x.cpf.replace(/\D/g, '') === p.cpf.replace(/\D/g, '')));
+  const jaNaLista = (p) => f.passageiros.some((x) => x.pessoa_id && x.pessoa_id === p.id);
   const adicionar = (p) => {
     if (p?.demitido) toast(`${p.nome} está como demitido(a) na Contratação.`, 'erro');
     set('passageiros', [...f.passageiros, p ? daPessoa(p) : vazio()]);

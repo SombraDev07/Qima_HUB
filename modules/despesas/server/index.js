@@ -126,17 +126,19 @@ export default {
 
     // ============================================================ SOLICITANTE
     // Envio de foto/PDF: cria a nota (rascunho), lê com IA e confere duplicidade
-    r.post('/notas', sol, limitar({ nome: 'envio', max: 40 }), express.raw({ type: () => true, limit: MAX_UPLOAD }), async (req, res) => {
+    r.post('/notas', sol, limitar({ nome: 'envio', max: 40, porDia: 100 }), express.raw({ type: () => true, limit: MAX_UPLOAD }), async (req, res) => {
       let arquivo = null;
       try {
         const mime = String(req.headers['content-type'] || '').split(';')[0];
         if (!MIMES[mime]) throw new RuleError('Envie foto (JPG, PNG, WEBP) ou PDF.');
         if (!req.body?.length) throw new RuleError('Arquivo vazio.');
+        { const ruim = arquivos.conferir(req.body, mime); if (ruim) throw new RuleError(ruim); } // conteúdo real, não o tipo declarado
         const cfg = await config(db);
         let substitui = null;
         if (req.query.substitui) {
           substitui = await getNota(db, req.query.substitui);
           if (substitui.dono_id !== req.user.id || substitui.status !== 'recusada') throw new RuleError('Só é possível substituir uma nota recusada sua.');
+          if (substitui.pedido_id) await pedidoAberto(db, substitui.pedido_id);
         }
         const hash = crypto.createHash('sha256').update(req.body).digest('hex');
         const hashOriginal = /^[a-f0-9]{64}$/.test(String(req.headers['x-hash-original'] || '')) ? req.headers['x-hash-original'] : null;
@@ -180,9 +182,25 @@ export default {
     r.get('/rascunhos', sol, ler(async (req) => notasView(db,
       await db.all("SELECT * FROM despesas_notas WHERE dono_id = ? AND status = 'rascunho' AND pedido_id IS NULL ORDER BY id", req.user.id), await config(db))));
 
+    /** Pedido que ainda aceita mudança nas notas: nem cancelado nem já pago (para mexer num pago, a central desfaz o pagamento antes). */
+    async function pedidoAberto(t, pid) {
+      const p = await t.get('SELECT id, status, pago_em, solicitante_id FROM despesas_pedidos WHERE id = ?', Number(pid) || 0);
+      if (!p) throw new RuleError('Pedido não encontrado', 404);
+      if (p.status === 'cancelado') throw new RuleError('Pedido cancelado.');
+      if (p.pago_em) throw new RuleError('Este pedido já foi pago. Para alterar, a central precisa desfazer o pagamento antes.');
+      return p;
+    }
+    /** A central não analisa nem paga o próprio reembolso (quem tem papel "ambos"). */
+    const naoEhOProprio = (p, req) => {
+      if (p.solicitante_id === req.user.id) throw new RuleError('Você não pode analisar ou pagar o seu próprio pedido. Peça a outra pessoa da central.', 403);
+    };
+
     function lerCampos(b, { central = false } = {}) {
       const out = {};
-      if ('valor' in b) out.valor = parseValor(b.valor);
+      if ('valor' in b) {
+        out.valor = parseValor(b.valor);
+        if (out.valor !== null && !(out.valor > 0 && out.valor < 10_000_000)) throw new RuleError('Valor inválido.');
+      }
       if ('data' in b) { if (b.data && !isDate(b.data)) throw new RuleError('Data inválida.'); out.data = b.data || null; }
       for (const k of ['tipo', 'centro_custo', 'motivo', 'emitente']) if (k in b) out[k] = String(b[k] ?? '').trim() || null;
       if ('cnpj' in b) out.cnpj = soDigitos(b.cnpj) || null;
@@ -257,6 +275,7 @@ export default {
     r.post('/notas/:id/reenviar', sol, h(async (req, t) => {
       const n = await getNota(t, req.params.id);
       if (n.dono_id !== req.user.id || n.status !== 'rascunho' || !n.substitui_id) throw new RuleError('Nota não pode ser reenviada.');
+      await pedidoAberto(t, n.pedido_id);
       validarNotaParaEnvio(n, await config(t));
       await t.run("UPDATE despesas_notas SET status = 'aguardando', updated_at = now() WHERE id = ?", n.id);
       await t.run("UPDATE despesas_notas SET status = 'substituida', updated_at = now() WHERE id = ?", n.substitui_id);
@@ -300,11 +319,10 @@ export default {
     }));
 
     /** Nota de um pedido que ainda pode ser analisada pela central. */
-    async function notaAberta(t, id) {
+    async function notaAberta(t, id, req) {
       const n = await getNota(t, id);
       if (!n.pedido_id) throw new RuleError('Nota ainda não enviada.');
-      const p = await t.get('SELECT status FROM despesas_pedidos WHERE id = ?', n.pedido_id);
-      if (p.status === 'cancelado') throw new RuleError('Pedido cancelado.');
+      naoEhOProprio(await pedidoAberto(t, n.pedido_id), req);
       if (['substituida', 'cancelada', 'rascunho'].includes(n.status)) throw new RuleError('Esta nota não está em análise.');
       return n;
     }
@@ -323,7 +341,7 @@ export default {
     }
 
     r.patch('/central/notas/:id', cen, h(async (req, t) => {
-      const n = await notaAberta(t, req.params.id);
+      const n = await notaAberta(t, req.params.id, req);
       const c = lerCampos(req.body || {}, { central: true });
       const mud = Object.keys(c).filter((k) => String(c[k] ?? '') !== String(n[k] ?? ''));
       if (mud.length) {
@@ -338,7 +356,7 @@ export default {
     }));
 
     r.post('/central/notas/:id/ok', cen, h(async (req, t) => {
-      const n = await notaAberta(t, req.params.id);
+      const n = await notaAberta(t, req.params.id, req);
       if (!(n.valor > 0)) throw new RuleError('A nota está sem valor.');
       const aprovado = req.body?.valor_aprovado != null ? parseValor(req.body.valor_aprovado) : n.valor;
       if (!(aprovado > 0) || aprovado > n.valor) throw new RuleError('Valor aprovado inválido (máximo: valor da nota).');
@@ -348,7 +366,7 @@ export default {
     }));
 
     r.post('/central/notas/:id/recusar', cen, h(async (req, t) => {
-      const n = await notaAberta(t, req.params.id);
+      const n = await notaAberta(t, req.params.id, req);
       const motivo = String(req.body?.motivo || '').trim();
       if (!motivo) throw new RuleError('Informe o motivo da recusa.');
       await t.run("UPDATE despesas_notas SET status = 'recusada', valor_aprovado = NULL, motivo_recusa = ?, analisado_por = ?, analisado_at = now() WHERE id = ?", motivo, req.user.id, n.id);
@@ -357,7 +375,7 @@ export default {
     }));
 
     r.post('/central/notas/:id/reabrir', cen, h(async (req, t) => {
-      const n = await notaAberta(t, req.params.id);
+      const n = await notaAberta(t, req.params.id, req);
       await t.run("UPDATE despesas_notas SET status = 'aguardando', valor_aprovado = NULL, motivo_recusa = NULL WHERE id = ?", n.id);
       await t.run("UPDATE despesas_pedidos SET status = 'aguardando' WHERE id = ?", n.pedido_id);
       await recalcPedido(t, n.pedido_id);
@@ -366,6 +384,7 @@ export default {
 
     r.post('/central/pedidos/:id/aprovar-tudo', cen, h(async (req, t) => {
       const pid = Number(req.params.id) || 0;
+      naoEhOProprio(await pedidoAberto(t, pid), req);
       const pend = await t.all("SELECT codigo, valor FROM despesas_notas WHERE pedido_id = ? AND status = 'aguardando' ORDER BY id", pid);
       if (!pend.length) throw new RuleError('Não há notas aguardando.');
       const semValor = pend.find((n) => !(n.valor > 0));
@@ -377,6 +396,7 @@ export default {
 
     r.post('/central/pedidos/:id/reprovar-tudo', cen, h(async (req, t) => {
       const pid = Number(req.params.id) || 0;
+      naoEhOProprio(await pedidoAberto(t, pid), req);
       const motivo = String(req.body?.motivo || '').trim();
       if (!motivo) throw new RuleError('Informe o motivo.');
       const x = await t.run("UPDATE despesas_notas SET status = 'recusada', motivo_recusa = ?, analisado_por = ?, analisado_at = now() WHERE pedido_id = ? AND status = 'aguardando'", motivo, req.user.id, pid);
@@ -394,6 +414,7 @@ export default {
 
     r.post('/central/pedidos/:id/pagamento', cen, h(async (req, t) => {
       const p = await getPedido(t, req.params.id);
+      naoEhOProprio(p, req);
       const { pago_em, obs } = req.body || {};
       if (pago_em && !['aprovado', 'parcial'].includes(p.status)) throw new RuleError('Só pedidos aprovados podem ser pagos.');
       if (pago_em && !isDate(pago_em)) throw new RuleError('Data de pagamento inválida.');
@@ -577,6 +598,9 @@ export default {
               continue;
             }
             if (!['image/jpeg', 'image/png'].includes(n.mime)) throw new Error('formato sem suporte no PDF (veja o ZIP)');
+            // PNG é descompactado inteiro na memória para entrar no PDF: foto gigante (ou enviada antes da conferência) fica de fora
+            const dim = n.mime === 'image/png' ? arquivos.dimensoes(buf, n.mime) : null;
+            if (n.mime === 'image/png' && (!dim || dim.w * dim.h > 16e6)) throw new Error('imagem grande demais para o PDF (veja o ZIP)');
             const img = n.mime === 'image/png' ? await doc.embedPng(buf) : await doc.embedJpg(buf);
             const pg = doc.addPage(A4);
             const areaW = A4[0] - 2 * M;

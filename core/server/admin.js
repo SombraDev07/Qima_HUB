@@ -144,6 +144,7 @@ export function adminRouter() {
     const { status, sort_order, enabled } = req.body;
     if (!['ativo', 'em_breve'].includes(status)) return res.status(400).json({ error: 'Status inválido' });
     await pg.run('UPDATE modules SET status = ?, sort_order = ?, enabled = ? WHERE key = ?', status, Number(sort_order) || 0, !!enabled, key);
+    await auditar('sistema_alterado', { usuario: req.user, ip: ipDe(req), detalhe: `${key} status=${status} ligado=${!!enabled}` });
     res.json({ ok: true });
   }));
 
@@ -164,6 +165,8 @@ export function adminRouter() {
 
   r.put('/ia', a(async (req, res) => {
     try { await aiSalvar(req.body || {}, req.user); } catch (e) { return res.status(400).json({ error: e.message }); }
+    const b = req.body || {};
+    await auditar('ia_alterada', { usuario: req.user, ip: ipDe(req), detalhe: `${String(b.provedor || '')} ${String(b.url || '').slice(0, 120)}${b.chave ? ' (chave nova)' : ''}` });
     res.json(await telaIA());
   }));
 

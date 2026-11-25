@@ -12,6 +12,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { conferirArquivo, dimensoes } from './tipoArquivo.js';
 
 const BUCKET = (process.env.QIMA_BUCKET || 'qima-arquivos').trim();
 const base = () => (process.env.SUPABASE_URL || '').trim().replace(/\/+$/, '');
@@ -42,8 +43,18 @@ export function arquivosDoModulo(chave, filesDir) {
   const api = {
     onde: storageAtivo() ? `Supabase Storage (${BUCKET}/${chave})` : `pasta local (${filesDir})`,
 
+    /** Confere o conteúdo real do arquivo enviado (veja tipoArquivo.js). null = ok; senão, a mensagem para a pessoa. */
+    conferir: (buffer, mime) => conferirArquivo(buffer, mime),
+    /** Largura e altura de uma imagem lidas do cabeçalho (sem decodificar), ou null. */
+    dimensoes: (buffer, mime) => dimensoes(buffer, mime),
+
     async salvar(nome, buffer, mime) {
       exigeArmazenamento();
+      // trava de segurança: nada que venha de fora é guardado sem conferir o conteúdo (os temporários são gerados pelo servidor)
+      if (!String(nome).startsWith('_tmp-')) {
+        const erro = conferirArquivo(buffer, mime);
+        if (erro) throw Object.assign(new Error(erro), { status: 400, expose: true });
+      }
       if (!storageAtivo()) { await fs.promises.mkdir(filesDir, { recursive: true }); await fs.promises.writeFile(local(nome), buffer); return; }
       const r = await fetch(url(nome), { method: 'POST', headers: { ...cabecalho(), 'Content-Type': mime || 'application/octet-stream', 'x-upsert': 'false' }, body: buffer, signal: prazo() });
       if (!r.ok) throw new Error(`Storage recusou o arquivo (${r.status}): ${(await r.text()).slice(0, 160)}`);

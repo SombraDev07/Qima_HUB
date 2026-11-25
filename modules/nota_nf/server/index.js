@@ -170,12 +170,13 @@ export default {
     }));
 
     // ============================================================ SOLICITANTE
-    r.post('/notas', sol, limitar({ nome: 'envio', max: 40 }), express.raw({ type: () => true, limit: MAX_UPLOAD }), async (req, res) => {
+    r.post('/notas', sol, limitar({ nome: 'envio', max: 40, porDia: 100 }), express.raw({ type: () => true, limit: MAX_UPLOAD }), async (req, res) => {
       let arquivo = null;
       try {
         const mime = String(req.headers['content-type'] || '').split(';')[0];
         if (!MIMES[mime]) throw new RuleError('Envie foto (JPG, PNG, WEBP) ou PDF da NF.');
         if (!req.body?.length) throw new RuleError('Arquivo vazio.');
+        { const ruim = arquivos.conferir(req.body, mime); if (ruim) throw new RuleError(ruim); } // conteúdo real, não o tipo declarado
         let substitui = null;
         if (req.query.substitui) {
           substitui = await getNota(db, req.query.substitui);
@@ -280,14 +281,16 @@ export default {
     r.get('/central/notas', cen, ler(async () => notasView(db,
       await db.all(`SELECT * FROM nota_nf_notas WHERE ${NAO_RASCUNHO} ORDER BY COALESCE(enviado_at, created_at) DESC, id DESC`))));
 
-    const emAnalise = async (t, id) => {
+    const emAnalise = async (t, id, req) => {
       const n = await getNota(t, id);
       if (!['aguardando', 'validada', 'recusada'].includes(n.status)) throw new RuleError('Esta NF não está em análise.');
+      // quem tem papel "ambos" não valida a própria NF
+      if (n.dono_id === req.user.id) throw new RuleError('Você não pode analisar a sua própria NF. Peça a outra pessoa da central.', 403);
       return n;
     };
 
     r.patch('/central/notas/:id', cen, h(async (req, t) => {
-      const n = await emAnalise(t, req.params.id);
+      const n = await emAnalise(t, req.params.id, req);
       const mud = await atualizar(t, n, req.body || {}, { central: true });
       const itensMudaram = Array.isArray(req.body?.itens);
       if (itensMudaram) await t.run('UPDATE nota_nf_notas SET editado_central = TRUE WHERE id = ?', n.id);
@@ -298,7 +301,7 @@ export default {
     const avisar = (t, n, assunto, corpo) => notify(n.dono_email, `Nota NF - ${n.codigo}: ${assunto}`, HTML(`Olá, ${esc(n.dono_nome)}.<br>${corpo}<br><br>QIMA HUB · Nota NF`), t);
 
     r.post('/central/notas/:id/validar', cen, h(async (req, t) => {
-      const n = await emAnalise(t, req.params.id);
+      const n = await emAnalise(t, req.params.id, req);
       validarEnvio(n, (await itensPorNota(t, [n])).get(n.id));
       await t.run("UPDATE nota_nf_notas SET status = 'validada', motivo_recusa = NULL, analisado_por = ?, analisado_at = now() WHERE id = ?", req.user.id, n.id);
       await log(t, n.id, req.user, 'NF validada');
@@ -306,7 +309,7 @@ export default {
     }));
 
     r.post('/central/notas/:id/recusar', cen, h(async (req, t) => {
-      const n = await emAnalise(t, req.params.id);
+      const n = await emAnalise(t, req.params.id, req);
       const motivo = String(req.body?.motivo || '').trim();
       if (!motivo) throw new RuleError('Informe o motivo da recusa.');
       await t.run("UPDATE nota_nf_notas SET status = 'recusada', motivo_recusa = ?, analisado_por = ?, analisado_at = now() WHERE id = ?", motivo, req.user.id, n.id);
@@ -315,7 +318,7 @@ export default {
     }));
 
     r.post('/central/notas/:id/reabrir', cen, h(async (req, t) => {
-      const n = await emAnalise(t, req.params.id);
+      const n = await emAnalise(t, req.params.id, req);
       await t.run("UPDATE nota_nf_notas SET status = 'aguardando', motivo_recusa = NULL WHERE id = ?", n.id);
       await log(t, n.id, req.user, 'Voltou para análise');
     }));

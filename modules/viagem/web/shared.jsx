@@ -15,6 +15,7 @@ export const StatusBadge = ({ s }) => <Badge tone={STATUS[s]?.tone}>{STATUS[s]?.
 export const IconeTransporte = ({ t, size = 15 }) => (t === 'aviao' ? <Plane size={size} /> : <Bus size={size} />);
 export const trecho = (p) => `${p.origem}/${p.origem_uf} → ${p.destino}/${p.destino_uf}`;
 export const fmtTel = (v) => {
+  if (/[•*]/.test(String(v || ''))) return v; // já vem mascarado do servidor
   const d = String(v || '').replace(/\D/g, '');
   if (d.length === 11) return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`;
   if (d.length === 10) return `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}`;
@@ -54,9 +55,9 @@ export function TabelaPassageiros({ passageiros, editavel, edits, onEdit, mostra
             return (
               <tr key={x.id}>
                 <td className="cell-strong">{x.nome}</td>
-                <td className="vg-nowrap">{fmtCpf(x.cpf)}</td>
-                <td>{x.rg}</td>
-                <td>{fmtDate(x.nascimento)}</td>
+                <td className="vg-nowrap">{/^\d{11}$/.test(x.cpf || '') ? fmtCpf(x.cpf) : (x.cpf || '—')}</td>
+                <td>{x.rg || '—'}</td>
+                <td>{x.nascimento ? fmtDate(x.nascimento) : '—'}</td>
                 <td>{x.email}<div className="muted small">{fmtTel(x.telefone)}</div></td>
                 <td>{x.bu}</td>
                 <td>{x.poltrona || <span className="muted">—</span>}</td>

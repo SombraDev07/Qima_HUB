@@ -71,6 +71,11 @@ export function verificarOrigem(req, res, next) {
     if (!permitidas.has(host)) return res.status(403).json({ error: 'Origem não permitida' });
   } else if (req.headers['sec-fetch-site'] === 'cross-site') {
     return res.status(403).json({ error: 'Origem não permitida' });
+  } else if (req.headers.referer) {
+    // sem Origin (navegador antigo ou cabeçalho removido): vale o Referer, se houver
+    let host = '';
+    try { host = new URL(req.headers.referer).host; } catch { /* inválido */ }
+    if (!permitidas.has(host)) return res.status(403).json({ error: 'Origem não permitida' });
   }
   next();
 }

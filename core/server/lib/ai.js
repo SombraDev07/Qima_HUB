@@ -81,9 +81,12 @@ export async function aiSalvar(body, user) {
     chave: atual.chave || null,
   };
   if (body.limpar_chave) novo.chave = null;
+  // Trocou o endereço da API: a chave guardada não acompanha (senão bastaria apontar a URL para outro servidor para receber a chave)
+  if (novo.url !== (atual.url || '')) novo.chave = null;
   if (typeof body.chave === 'string' && body.chave.trim()) novo.chave = cifrar(body.chave.trim());
   if (provedor === 'openai') {
     if (!/^https?:\/\/\S+$/.test(novo.url)) throw new Error('Informe a URL da API (ex.: https://api.openai.com/v1)');
+    if (process.env.NODE_ENV === 'production' && !/^https:\/\//.test(novo.url)) throw new Error('A URL da API precisa começar com https://');
     if (!novo.modelo) throw new Error('Informe o modelo');
     if (novo.auth !== 'nenhuma' && !novo.chave) throw new Error('Informe a chave da API');
   }
@@ -123,7 +126,8 @@ function provedorOpenAI(c) {
     const r = await fetch(endpoint, { method: 'POST', headers, body: JSON.stringify(body), signal: AbortSignal.timeout((c.timeout_s || 60) * 1000) });
     const d = await r.json().catch(() => ({}));
     if (r.status === 400 && json && /response_format|json/i.test(JSON.stringify(d))) return chamar(messages, false); // provedor sem modo JSON
-    if (!r.ok) throw new Error(`IA respondeu ${r.status}: ${String(d.error?.message || d.message || JSON.stringify(d)).slice(0, 200)}`);
+    // só a mensagem de erro no formato das APIs de IA; nunca o corpo bruto (a URL é configurável e poderia ecoar outro serviço)
+    if (!r.ok) throw new Error(`IA respondeu ${r.status}${typeof d.error?.message === 'string' ? `: ${d.error.message.slice(0, 200)}` : ''}`);
     return d.choices?.[0]?.message?.content ?? '';
   };
   return {

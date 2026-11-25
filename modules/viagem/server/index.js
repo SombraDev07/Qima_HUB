@@ -16,7 +16,25 @@ import {
 const MAX_UPLOAD = 15 * 1024 * 1024;
 const OK_MIME = /^(application\/pdf|image\/(png|jpe?g|webp))$/;
 const HTML = (corpo) => `<div style="font-family:Segoe UI,Arial,sans-serif;font-size:15px;line-height:1.6">${corpo}</div>`;
-const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;');
+const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+const digitos = (v) => String(v ?? '').replace(/\D/g, '');
+
+// Dados pessoais (CPF, RG, nascimento, telefone) só aparecem inteiros para a Central. O solicitante vê mascarado
+// e sabe apenas que o dado já está no cadastro (tem_*): o servidor completa o pedido com o que está guardado.
+const DOCS = ['cpf', 'rg', 'nascimento', 'telefone'];
+function mascarar(x) {
+  const cpf = digitos(x.cpf);
+  const tel = digitos(x.telefone);
+  const rg = String(x.rg ?? '').trim();
+  return {
+    ...x,
+    cpf: cpf.length === 11 ? `***.${cpf.slice(3, 6)}.${cpf.slice(6, 9)}-**` : null,
+    rg: rg ? `•••${rg.slice(-2)}` : null,
+    nascimento: null,
+    telefone: tel.length >= 10 ? `(${tel.slice(0, 2)}) •••••-${tel.slice(-4)}` : null,
+    ...Object.fromEntries(DOCS.map((k) => [`tem_${k}`, !!String(x[k] ?? '').trim()])),
+  };
+}
 const trecho = (p) => `${p.origem}/${p.origem_uf} → ${p.destino}/${p.destino_uf}`;
 
 export default {
@@ -48,7 +66,7 @@ export default {
   },
 
   router(r, ctx) {
-    const { db, requireRole, notify, arquivos } = ctx;
+    const { db, requireRole, notify, arquivos, limitar } = ctx;
     const sol = requireRole('solicitante');
     const cen = requireRole('central');
     const isCentral = (req) => ['central', 'ambos'].includes(req.moduleRole);
@@ -77,14 +95,14 @@ export default {
     const busAtivas = async (t) => (await t.all('SELECT nome FROM viagem_bus WHERE ativo ORDER BY nome')).map((x) => x.nome);
 
     /** Pedidos com passageiros, passagens e histórico (3 consultas, qualquer que seja a quantidade). */
-    async function completos(t, pedidos, { historico = false } = {}) {
+    async function completos(t, pedidos, { historico = false, central = false } = {}) {
       if (!pedidos.length) return [];
       const lista = ids(pedidos.map((p) => p.id));
       const pass = await t.all(`SELECT * FROM viagem_passageiros WHERE pedido_id IN (${lista}) ORDER BY pedido_id, ordem, id`);
       const anexos = await t.all(`SELECT id, pedido_id, nome, mime, tamanho, created_at FROM viagem_anexos WHERE pedido_id IN (${lista}) ORDER BY id`);
       const hist = historico ? await t.all(`SELECT * FROM viagem_historico WHERE pedido_id IN (${lista}) ORDER BY id DESC`) : [];
       return pedidos.map((p) => {
-        const passageiros = pass.filter((x) => x.pedido_id === p.id);
+        const passageiros = pass.filter((x) => x.pedido_id === p.id).map((x) => (central ? x : mascarar(x)));
         const comValor = passageiros.filter((x) => x.valor != null);
         return {
           ...p,
@@ -95,11 +113,37 @@ export default {
         };
       });
     }
-    const completo = async (t, id) => (await completos(t, [await getPedido(t, id)], { historico: true }))[0];
+    const completo = async (t, id, { central = true } = {}) => (await completos(t, [await getPedido(t, id)], { historico: true, central }))[0];
 
     /**
-     * Grava os dados do passageiro no banco de pessoas da Contratação e devolve o id da pessoa.
-     * Acha a pessoa pelo id escolhido, pelo CPF ou pelo e-mail; se não existir, cadastra.
+     * Completa os passageiros escolhidos do banco de pessoas com os documentos guardados lá (o solicitante não os vê).
+     * Um pessoa_id inexistente vira "pessoa nova". CPF digitado diferente do cadastrado é recusado (não troca a identidade de ninguém).
+     */
+    async function completarDaBase(t, lista) {
+      if (!Array.isArray(lista)) return lista;
+      const idsP = [...new Set(lista.map((x) => Number(x?.pessoa_id)).filter((n) => Number.isInteger(n) && n > 0))];
+      const base = idsP.length ? await t.all(`SELECT id, cpf, rg, to_char(nascimento, 'YYYY-MM-DD') AS nascimento, telefone, bu
+        FROM contratacao_banco WHERE id IN (${ids(idsP)})`) : [];
+      const porId = new Map(base.map((b) => [b.id, b]));
+      const vazio = (v) => !String(v ?? '').trim();
+      return lista.map((x) => {
+        const b = x && porId.get(Number(x.pessoa_id));
+        if (!b) return x && { ...x, pessoa_id: null };
+        if (b.cpf && !vazio(x.cpf) && digitos(x.cpf) !== digitos(b.cpf)) {
+          throw new RuleError(`${String(x.nome || 'Passageiro').slice(0, 120)}: o CPF não confere com o cadastro desta pessoa. Para corrigir o cadastro, fale com o RH.`);
+        }
+        const out = { ...x };
+        for (const k of DOCS) if (vazio(x[k]) && !vazio(b[k])) out[k] = b[k];
+        if (vazio(out.bu) && !vazio(b.bu)) out.bu = b.bu;
+        return out;
+      });
+    }
+    const lerPassageirosDoPedido = async (t, lista) => lerPassageiros(await completarDaBase(t, lista), await busAtivas(t));
+
+    /**
+     * Liga o passageiro ao banco de pessoas da Contratação e devolve o id da pessoa.
+     * Acha a pessoa pelo id escolhido (já conferido em completarDaBase), pelo CPF ou pelo e-mail; se não existir, cadastra.
+     * Num cadastro existente só PREENCHE o que estiver vazio: nunca sobrescreve CPF, RG, nascimento, telefone ou BU (quem corrige é o RH).
      */
     async function sincronizarPessoa(t, x) {
       let pessoa = x.pessoa_id ? await t.get('SELECT id, email FROM contratacao_banco WHERE id = ?', x.pessoa_id) : null;
@@ -112,8 +156,9 @@ export default {
       }
       // e-mail só entra se a pessoa não tinha e ninguém mais usa (o e-mail é único no banco)
       const livre = !pessoa.email && !(await t.get('SELECT 1 FROM contratacao_banco WHERE lower(email) = ? AND id <> ?', x.email, pessoa.id));
-      await t.run(`UPDATE contratacao_banco SET cpf = ?, rg = ?, nascimento = ?, telefone = ?, bu = ?${livre ? ', email = ?' : ''}, updated_at = now() WHERE id = ?`,
-        x.cpf, x.rg, x.nascimento, x.telefone, x.bu, ...(livre ? [x.email] : []), pessoa.id);
+      await t.run(`UPDATE contratacao_banco SET cpf = COALESCE(NULLIF(cpf, ''), ?), rg = COALESCE(NULLIF(rg, ''), ?), nascimento = COALESCE(nascimento, ?),
+        telefone = COALESCE(NULLIF(telefone, ''), ?), bu = COALESCE(NULLIF(bu, ''), ?)${livre ? ', email = ?' : ''}, updated_at = now() WHERE id = ?`,
+      x.cpf, x.rg, x.nascimento, x.telefone, x.bu, ...(livre ? [x.email] : []), pessoa.id);
       return pessoa.id;
     }
 
@@ -141,19 +186,23 @@ export default {
 
     const CAMPOS_PESSOA = `id, nome, email, cpf, rg, to_char(nascimento, 'YYYY-MM-DD') AS nascimento, telefone, bu, funcao,
       NULLIF(concat_ws('/', cidade, uf), '') AS cidade, demitido`;
-    // Busca no banco de pessoas da Contratação (nome, e-mail ou CPF). Demitidos aparecem marcados.
-    r.get('/pessoas', ler((req) => {
-      const termo = String(req.query.q || '').trim();
+    // Busca no banco de pessoas da Contratação por nome ou e-mail (por CPF só a Central). Os documentos voltam mascarados:
+    // a busca serve para escolher a pessoa, não para consultar dados pessoais.
+    r.get('/pessoas', ler(async (req) => {
+      const termo = String(req.query.q || '').trim().slice(0, 80);
       if (termo.length < 2) return [];
-      const q = `%${termo}%`;
-      const digitos = termo.replace(/\D/g, '');
-      return db.all(`SELECT ${CAMPOS_PESSOA} FROM contratacao_banco
-        WHERE nome ILIKE ? OR COALESCE(email,'') ILIKE ? ${digitos.length >= 3 ? "OR regexp_replace(COALESCE(cpf,''), '\\D', '', 'g') LIKE ?" : ''}
-        ORDER BY demitido, nome LIMIT 30`, q, q, ...(digitos.length >= 3 ? [`%${digitos}%`] : []));
+      const q = `%${termo.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+      const dig = isCentral(req) ? digitos(termo) : '';
+      const rows = await db.all(`SELECT ${CAMPOS_PESSOA} FROM contratacao_banco
+        WHERE nome ILIKE ? OR COALESCE(email,'') ILIKE ? ${dig.length >= 3 ? "OR regexp_replace(COALESCE(cpf,''), '\\D', '', 'g') LIKE ?" : ''}
+        ORDER BY demitido, nome LIMIT 30`, q, q, ...(dig.length >= 3 ? [`%${dig}%`] : []));
+      return rows.map(mascarar);
     }));
     // A própria pessoa logada no banco de pessoas (para já vir preenchida como 1º passageiro)
-    r.get('/eu', ler(async (req) => (await db.get(`SELECT ${CAMPOS_PESSOA} FROM contratacao_banco WHERE lower(email) = lower(?)`, req.user.email || ''))
-      || { id: null, nome: req.user.name, email: req.user.email || '' }));
+    r.get('/eu', ler(async (req) => {
+      const eu = await db.get(`SELECT ${CAMPOS_PESSOA} FROM contratacao_banco WHERE lower(email) = lower(?)`, req.user.email || '');
+      return eu ? mascarar(eu) : { id: null, nome: req.user.name, email: req.user.email || '' };
+    }));
 
     // Passagens: o dono do pedido e a central podem abrir
     r.get('/anexos/:aid', async (req, res) => {
@@ -172,14 +221,14 @@ export default {
     r.get('/meus', sol, ler(async (req) => completos(db, await db.all('SELECT * FROM viagem_pedidos WHERE solicitante_id = ? ORDER BY id DESC LIMIT 300', req.user.id))));
 
     r.get('/pedidos/:id', ler(async (req) => {
-      const p = await completo(db, req.params.id);
+      const p = await completo(db, req.params.id, { central: isCentral(req) });
       if (!isCentral(req) && p.solicitante_id !== req.user.id) throw new RuleError('Pedido não encontrado', 404);
       return p;
     }));
 
     r.post('/meus', sol, h(async (req, t) => {
       const v = lerViagem(req.body || {});
-      const passageiros = lerPassageiros(req.body.passageiros, await busAtivas(t));
+      const passageiros = await lerPassageirosDoPedido(t, req.body.passageiros);
       const p = await t.get(`INSERT INTO viagem_pedidos (solicitante_id, solicitante_nome, solicitante_email, origem, origem_uf, destino, destino_uf,
         transporte, data_ida, data_volta, horario, obs) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
       req.user.id, req.user.name, req.user.email || null, v.origem, v.origem_uf, v.destino, v.destino_uf, v.transporte, v.data_ida, v.data_volta, v.horario, v.obs);
@@ -197,7 +246,7 @@ export default {
       if (p.solicitante_id !== req.user.id) throw new RuleError('Pedido não encontrado', 404);
       if (!['pendente', 'recusado'].includes(p.status)) throw new RuleError(`O pedido está "${STATUS_LABEL[p.status]}" e não pode mais ser editado. Fale com a central.`);
       const v = lerViagem(req.body || {});
-      const passageiros = lerPassageiros(req.body.passageiros, await busAtivas(t));
+      const passageiros = await lerPassageirosDoPedido(t, req.body.passageiros);
       await t.run(`UPDATE viagem_pedidos SET origem = ?, origem_uf = ?, destino = ?, destino_uf = ?, transporte = ?, data_ida = ?, data_volta = ?, horario = ?,
         obs = ?, status = 'pendente', updated_at = now() WHERE id = ?`,
       v.origem, v.origem_uf, v.destino, v.destino_uf, v.transporte, v.data_ida, v.data_volta, v.horario, v.obs, p.id);
@@ -264,7 +313,7 @@ export default {
       return completo(t, p.id);
     }));
 
-    r.post('/central/pedidos/:id/anexos', cen, express.raw({ type: () => true, limit: MAX_UPLOAD }), async (req, res) => {
+    r.post('/central/pedidos/:id/anexos', cen, limitar({ nome: 'anexo', max: 40, porDia: 100 }), express.raw({ type: () => true, limit: MAX_UPLOAD }), async (req, res) => {
       let arquivo = null;
       try {
         const p = await getPedido(db, req.params.id);
@@ -273,6 +322,7 @@ export default {
         const mime = String(req.headers['content-type'] || '').split(';')[0];
         if (!OK_MIME.test(mime)) throw new RuleError('Envie PDF ou imagem (JPG/PNG).');
         if (!req.body?.length) throw new RuleError('Arquivo vazio.');
+        { const ruim = arquivos.conferir(req.body, mime); if (ruim) throw new RuleError(ruim); } // conteúdo real, não o tipo declarado
         const ext = { 'application/pdf': '.pdf', 'image/png': '.png', 'image/webp': '.webp' }[mime] || '.jpg';
         arquivo = `${p.id}-${crypto.randomBytes(8).toString('hex')}${ext}`;
         await arquivos.salvar(arquivo, req.body, mime);

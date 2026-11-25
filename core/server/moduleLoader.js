@@ -54,9 +54,19 @@ function makeContext(key) {
     a,
     /**
      * Limite de uso por pessoa (ex.: envios que gastam IA ou armazenamento). Middleware: coloque antes de ler o corpo.
-     *   r.post('/notas', sol, limitar({ nome: 'envio', max: 40, janelaMin: 10 }), express.raw(...), ...)
+     *   r.post('/notas', sol, limitar({ nome: 'envio', max: 40, janelaMin: 10, porDia: 100 }), express.raw(...), ...)
+     * max/janelaMin seguram rajadas; porDia é o teto do dia (dia do calendário em Brasília), por pessoa e por sistema.
+     * Tentativa recusada também conta (quem insiste em mandar arquivo errado esgota a cota).
      */
-    limitar: ({ nome, max, janelaMin = 10 }) => a(async (req, res, next) => {
+    limitar: ({ nome, max, janelaMin = 10, porDia = null }) => a(async (req, res, next) => {
+      if (porDia) {
+        const hoje = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date());
+        const nDia = await contar(`uso:${key}:${nome}:dia:${hoje}:${req.user.id}`, { max: porDia, janelaMin: 1440, bloqueioMin: 1 });
+        if (nDia > porDia) {
+          res.setHeader('Retry-After', 3600);
+          return res.status(429).json({ error: `Limite de ${porDia} envios por dia neste sistema atingido. Tente amanhã ou fale com a Central.` });
+        }
+      }
       const n = await contar(`uso:${key}:${nome}:${req.user.id}`, { max, janelaMin, bloqueioMin: 1 });
       if (n > max) { res.setHeader('Retry-After', janelaMin * 60); return res.status(429).json({ error: `Muitos envios em pouco tempo. Aguarde alguns minutos e tente de novo.` }); }
       next();

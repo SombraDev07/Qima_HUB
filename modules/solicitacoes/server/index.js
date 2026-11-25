@@ -11,7 +11,8 @@ import {
   RuleError, isDate, hoje, txt, esc, codigoPedido, TIPOS, SUBTIPOS, STATUS, EDITAVEIS, tipoLabel, precisaAnexo, lerLinhas, fmtDoc,
 } from './regras.js';
 
-const EXT = { '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', '.xls': 'application/vnd.ms-excel', '.csv': 'text/csv', '.xlsm': 'application/vnd.ms-excel.sheet.macroEnabled.12' };
+// Só planilha Excel. Sem .xlsm (Excel com macro) nem .csv (texto que o Excel executa como fórmula).
+const EXT = { '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', '.xls': 'application/vnd.ms-excel' };
 const MAX_UPLOAD = 20 * 1024 * 1024;
 
 // Pedido com os números do card numa consulta só (sem uma consulta por pedido).
@@ -122,14 +123,14 @@ export default {
 
     // ------------------------------------------------------------ planilhas
     // TODO(migração): os arquivos ainda ficam em disco local; passam para o Supabase Storage na etapa de arquivos.
-    r.post('/arquivos', sol, limitar({ nome: 'planilha', max: 30 }), express.raw({ type: () => true, limit: MAX_UPLOAD }), async (req, res) => {
+    r.post('/arquivos', sol, limitar({ nome: 'planilha', max: 30, porDia: 100 }), express.raw({ type: () => true, limit: MAX_UPLOAD }), async (req, res) => {
       let arquivo = null;
       try {
         const nome = path.basename(String(req.query.nome || '')).slice(0, 200);
         const ext = path.extname(nome).toLowerCase();
-        if (!EXT[ext]) throw new RuleError('Envie uma planilha Excel (.xlsx, .xls, .xlsm) ou .csv.');
+        if (!EXT[ext]) throw new RuleError('Envie uma planilha Excel (.xlsx ou .xls).');
         if (!req.body?.length) throw new RuleError('Arquivo vazio.');
-        if (['.xlsx', '.xlsm'].includes(ext) && req.body.slice(0, 2).toString() !== 'PK') throw new RuleError('Este arquivo não é uma planilha Excel válida.');
+        { const ruim = arquivos.conferir(req.body, EXT[ext]); if (ruim) throw new RuleError(ruim); } // conteúdo real e sem macro
         arquivo = `${Date.now()}-${crypto.randomBytes(6).toString('hex')}${ext}`;
         await arquivos.salvar(arquivo, req.body, EXT[ext]);
         const x = await db.get('INSERT INTO solicitacoes_arquivos (dono_id, nome, arquivo, mime, tamanho) VALUES (?, ?, ?, ?, ?) RETURNING id', req.user.id, nome, arquivo, EXT[ext], req.body.length);

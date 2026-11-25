@@ -30,7 +30,28 @@ if (!SERVERLESS) await migrarNucleo();
 const app = express();
 app.disable('x-powered-by');
 app.use(cabecalhosSeguros);
+// Caminho com barra dupla (/api/m//x) é tratado de forma diferente por partes do Express: recusa logo na entrada
+app.use((req, res, next) => (req.path.includes('//') ? res.status(404).json({ error: 'Rota não encontrada' }) : next()));
 app.use(express.json({ limit: '1mb' }));
+// Texto que chega (corpo JSON e parâmetros da URL): tira o caractere nulo (o Postgres recusa e a gravação quebrava com erro 500)
+// e recusa campo com mais de 10.000 caracteres (nenhuma tela precisa disso; evita encher o banco com lixo).
+const MAX_TEXTO = 10_000;
+function limparTexto(v, prof = 0) {
+  if (typeof v === 'string') {
+    if (v.length > MAX_TEXTO) throw Object.assign(new Error(`Texto longo demais (máximo de ${MAX_TEXTO.toLocaleString('pt-BR')} caracteres por campo).`), { status: 400, expose: true });
+    return v.includes('\u0000') ? v.replace(/\u0000/g, '') : v;
+  }
+  if (prof > 20 || v === null || typeof v !== 'object') return v;
+  for (const k of Object.keys(v)) v[k] = limparTexto(v[k], prof + 1);
+  return v;
+}
+app.use((req, _res, next) => {
+  try {
+    if (req.body && typeof req.body === 'object' && !Buffer.isBuffer(req.body)) limparTexto(req.body);
+    limparTexto(req.query);
+    next();
+  } catch (e) { next(e); }
+});
 // proteção contra abuso: rajadas por IP (geral e, mais apertado, nas rotas de login/recuperação)
 app.use('/api/auth', limitePorIp({ max: 40, nome: 'auth' }));
 app.use('/api', limitePorIp({ max: 900, nome: 'api' }));
@@ -46,8 +67,9 @@ const aguarde = (res, min) => {
 
 /** Confere e-mail e senha com limite de tentativas. Devolve o id da pessoa, ou null depois de já ter respondido o erro. */
 async function autenticar(req, res) {
-  const email = String(req.body?.email || '').trim().toLowerCase().slice(0, 254);
-  const password = String(req.body?.password || '');
+  // só texto: lista ou objeto no lugar do e-mail/senha é recusado (nada de conversão automática de tipo)
+  const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase().slice(0, 254) : '';
+  const password = typeof req.body?.password === 'string' ? req.body.password : '';
   const ip = ipDe(req);
   const chaves = chavesLogin(email, ip);
   const espera = await bloqueio(chaves);
@@ -179,7 +201,8 @@ async function sistemasDoUsuario(userId, { soAtivos = false } = {}) {
 
 // ---------- Usuário logado + cards visíveis ----------
 // ?lado=solicitante (app de celular): os resumos e o sininho saem só do lado Solicitante, mesmo para quem é Central
-const ladoApp = (req, papel) => (req.query.lado === 'solicitante' && papel !== 'rtv' ? 'solicitante' : papel);
+// O login do app é sempre lado Solicitante, com ou sem o parâmetro (nunca recebe resumos da Central)
+const ladoApp = (req, papel) => ((req.appTokenId || req.query.lado === 'solicitante') && papel !== 'rtv' ? 'solicitante' : papel);
 
 app.get('/api/me', requireAuth, a(async (req, res) => {
   const rows = await sistemasDoUsuario(req.user.id);
@@ -267,6 +290,12 @@ if (!SERVERLESS && fs.existsSync(dist)) {
 
 app.use((err, _req, res, _next) => {
   // erros de entrada marcados como "expose" (ex.: dado inválido) voltam com a mensagem; o resto vira "Erro interno"
+  if (err?.type === 'entity.too.large') {
+    const mb = err.limit ? Math.round(err.limit / 1024 / 1024) : 0;
+    if (!res.headersSent) res.status(413).json({ error: mb >= 1 ? `Arquivo grande demais (máximo ${mb} MB). Reduza ou envie outro arquivo.` : 'Dados grandes demais para enviar de uma vez.' });
+    return;
+  }
+  if (err?.type === 'entity.parse.failed') { if (!res.headersSent) res.status(400).json({ error: 'Dados inválidos (JSON malformado).' }); return; }
   if (err?.expose && err.status >= 400 && err.status < 500) { if (!res.headersSent) res.status(err.status).json({ error: err.message }); return; }
   console.error(err);
   if (!res.headersSent) res.status(500).json({ error: 'Erro interno' });

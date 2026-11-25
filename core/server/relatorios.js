@@ -96,6 +96,8 @@ export function relatoriosDaCentralRouter() {
 export function relatorioDoSistemaRouter() {
   const r = express.Router();
   r.get('/:key/relatorio.xlsx', requireAuth, a(async (req, res) => {
+    // o login do app (lado Solicitante) nunca baixa relatório; a checagem fica aqui, na própria rota, para não depender do caminho
+    if (req.appTokenId) return res.status(403).json({ error: 'Disponível só no site.' });
     const { key } = req.params;
     if (!registry.has(key)) return res.status(404).json({ error: 'Sistema não encontrado' });
     const acesso = await pg.get(`SELECT m.status, m.enabled, um.role FROM modules m

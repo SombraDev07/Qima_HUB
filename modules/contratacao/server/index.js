@@ -81,10 +81,13 @@ export default {
       return p;
     };
     /** Pedidos com as pessoas anexadas: uma consulta para todos os pedidos da lista (não uma por pedido). */
-    const comAnexos = async (t, pedidos) => {
+    // completo = Central (todos os dados da pessoa). O solicitante recebe só o que a tela dele mostra: nada de CPF, RG,
+    // nascimento, telefone, BU ou observações internas do RH.
+    const comAnexos = async (t, pedidos, { completo = false } = {}) => {
       const ids = pedidos.map((p) => Number(p.id));
+      const colunas = completo ? 'b.*' : 'b.id, b.nome, b.email, b.funcao, b.cnh, b.movel';
       const anexos = ids.length ? await t.all(`
-        SELECT a.id AS anexo_id, a.pedido_id AS do_pedido, a.data_vinc, b.*,
+        SELECT a.id AS anexo_id, a.pedido_id AS do_pedido, a.data_vinc, ${colunas},
           (SELECT d.id FROM contratacao_demissoes d WHERE d.banco_id = b.id AND d.status = 'pendente' LIMIT 1) AS demissao_pendente
         FROM contratacao_anexos a JOIN contratacao_banco b ON b.id = a.banco_id WHERE a.pedido_id IN (${ids.join(',')}) ORDER BY b.nome`) : [];
       const porPedido = new Map(ids.map((id) => [id, []]));
@@ -94,7 +97,7 @@ export default {
         return { ...p, qtd_atendida: lista.length, situacao: situacao(p), status_label: STATUS[p.status], anexos: lista };
       });
     };
-    const pedidoView = async (t, id) => (await comAnexos(t, [await getPedido(t, id)]))[0];
+    const pedidoView = async (t, id) => (await comAnexos(t, [await getPedido(t, id)], { completo: true }))[0]; // só rotas da Central
 
     async function lerPedido(t, b) {
       const funcoes = await nomes(t, 'contratacao_funcoes');
@@ -201,7 +204,7 @@ export default {
     }));
 
     // ============================================================ CENTRAL — vagas
-    r.get('/central/pedidos', cen, ler(async () => comAnexos(db, await db.all("SELECT * FROM contratacao_pedidos WHERE status <> 'rascunho' ORDER BY id DESC"))));
+    r.get('/central/pedidos', cen, ler(async () => comAnexos(db, await db.all("SELECT * FROM contratacao_pedidos WHERE status <> 'rascunho' ORDER BY id DESC"), { completo: true })));
 
     r.get('/central/pedidos/:id', cen, ler(async (req) => {
       const p = await pedidoView(db, req.params.id);

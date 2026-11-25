@@ -172,7 +172,7 @@ export default {
       } catch (e) { erro(res, e); }
     });
 
-    r.post('/veiculos/:id/fotos', limitar({ nome: 'foto', max: 120 }), express.raw({ type: () => true, limit: MAX_UPLOAD }), async (req, res) => {
+    r.post('/veiculos/:id/fotos', limitar({ nome: 'foto', max: 120, porDia: 100 }), express.raw({ type: () => true, limit: MAX_UPLOAD }), async (req, res) => {
       let arquivo = null;
       try {
         const v = await veiculoVisivel(db, req);
@@ -188,6 +188,7 @@ export default {
         const mime = String(req.headers['content-type'] || '').split(';')[0];
         if (!MIMES[mime]) throw new RuleError('Envie uma foto (JPG, PNG ou WEBP).');
         if (!req.body?.length) throw new RuleError('Foto vazia.');
+        { const ruim = arquivos.conferir(req.body, mime); if (ruim) throw new RuleError(ruim); } // conteúdo real, não o tipo declarado
         const tirada = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(String(req.query.tirada_em || '')) ? String(req.query.tirada_em).slice(0, 19).replace('T', ' ') : agora();
         const quando = Date.parse(`${tirada.replace(' ', 'T')}Z`);
         if (Number.isNaN(quando)) throw new RuleError('Data da foto inválida.');

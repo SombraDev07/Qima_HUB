@@ -139,7 +139,7 @@ function Anexo({ atual, novo, setNovo }) {
       <Button type="button" variant="outline" className="btn-sm" onClick={() => ref.current.click()} disabled={enviando}>
         <Paperclip size={14} /> {enviando ? 'Enviando…' : mostrar ? 'Trocar planilha' : 'Anexar Excel'}
       </Button>
-      <input ref={ref} type="file" hidden accept=".xlsx,.xls,.xlsm,.csv" onChange={(e) => { const f = e.target.files[0]; e.target.value = ''; if (f) escolher(f); }} />
+      <input ref={ref} type="file" hidden accept=".xlsx,.xls" onChange={(e) => { const f = e.target.files[0]; e.target.value = ''; if (f) escolher(f); }} />
     </div>
   );
 }

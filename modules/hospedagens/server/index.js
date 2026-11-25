@@ -54,7 +54,7 @@ export default {
   },
 
   router(r, ctx) {
-    const { db, requireRole, notify, arquivos } = ctx;
+    const { db, requireRole, notify, arquivos, limitar } = ctx;
     const sol = requireRole('solicitante');
     const cen = requireRole('central');
 
@@ -621,7 +621,7 @@ export default {
 
     r.get('/central/quartos/:qid/anexos', cen, ler((req) => db.all('SELECT id, nome, mime, tamanho, created_at FROM hospedagens_anexos WHERE quarto_id = ? ORDER BY id', Number(req.params.qid) || 0)));
 
-    r.post('/central/quartos/:qid/anexos', cen, express.raw({ type: () => true, limit: MAX_UPLOAD }), async (req, res) => {
+    r.post('/central/quartos/:qid/anexos', cen, limitar({ nome: 'anexo', max: 40, porDia: 100 }), express.raw({ type: () => true, limit: MAX_UPLOAD }), async (req, res) => {
       let arquivo = null;
       try {
         const q = await getQuarto(db, req.params.qid);
@@ -629,7 +629,10 @@ export default {
         const mime = String(req.headers['content-type'] || '').split(';')[0];
         if (!OK_MIME.test(mime)) throw new RuleError('Envie PDF ou imagem.');
         if (!req.body?.length) throw new RuleError('Arquivo vazio.');
-        arquivo = `${q.id}-${crypto.randomBytes(8).toString('hex')}${path.extname(nome).toLowerCase()}`;
+        { const ruim = arquivos.conferir(req.body, mime); if (ruim) throw new RuleError(ruim); } // conteúdo real, não o tipo declarado
+        // a extensão guardada vem do tipo conferido, nunca do nome que veio do navegador
+        const ext = { 'application/pdf': '.pdf', 'image/png': '.png', 'image/jpeg': '.jpg', 'image/jpg': '.jpg', 'image/gif': '.gif', 'image/webp': '.webp', 'image/bmp': '.bmp' }[mime] || '';
+        arquivo = `${q.id}-${crypto.randomBytes(8).toString('hex')}${ext}`;
         await arquivos.salvar(arquivo, req.body, mime);
         const x = await db.get('INSERT INTO hospedagens_anexos (quarto_id, nome, mime, arquivo, tamanho, created_by) VALUES (?, ?, ?, ?, ?, ?) RETURNING id',
           q.id, nome, mime, arquivo, req.body.length, req.user.id);
