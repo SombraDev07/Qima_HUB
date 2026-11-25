@@ -126,4 +126,14 @@ export default [
       `);
     },
   },
+  {
+    // RG e BU da pessoa: preenchidos pelo sistema Viagem e reaproveitados na próxima viagem
+    version: 3,
+    async up(db) {
+      await db.exec(`
+        ALTER TABLE contratacao_banco ADD COLUMN IF NOT EXISTS rg TEXT;
+        ALTER TABLE contratacao_banco ADD COLUMN IF NOT EXISTS bu TEXT;
+      `);
+    },
+  },
 ];

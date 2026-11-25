@@ -1,0 +1,10 @@
+{
+  "key": "viagem",
+  "title": "Viagem",
+  "description": "Pedidos de passagem de ônibus e avião, com os dados dos passageiros",
+  "icon": "plane",
+  "version": "1.0.0",
+  "order": 10,
+  "defaultStatus": "ativo",
+  "labels": { "solicitante": "Minhas viagens", "central": "Central viagens" }
+}
