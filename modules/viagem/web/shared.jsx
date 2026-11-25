@@ -57,7 +57,7 @@ export function TabelaPassageiros({ passageiros, editavel, edits, onEdit, mostra
                 <td className="cell-strong">{x.nome}</td>
                 <td className="vg-nowrap">{/^\d{11}$/.test(x.cpf || '') ? fmtCpf(x.cpf) : (x.cpf || '—')}</td>
                 <td>{x.rg || '—'}</td>
-                <td>{x.nascimento ? fmtDate(x.nascimento) : '—'}</td>
+                <td>{!x.nascimento ? '—' : x.nascimento.includes('*') ? x.nascimento : fmtDate(x.nascimento)}</td>
                 <td>{x.email}<div className="muted small">{fmtTel(x.telefone)}</div></td>
                 <td>{x.bu}</td>
                 <td>{x.poltrona || <span className="muted">—</span>}</td>

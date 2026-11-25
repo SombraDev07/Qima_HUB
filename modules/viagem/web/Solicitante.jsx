@@ -59,14 +59,17 @@ function MinhasViagens({ api }) {
 }
 
 // =========================================================================== formulário
-const DOCS = ['cpf', 'rg', 'nascimento', 'telefone'];
+const DOCS = ['cpf', 'rg', 'nascimento', 'telefone', 'email'];
 const vazio = () => ({ pessoa_id: null, nome: '', cpf: '', rg: '', nascimento: '', email: '', telefone: '', bu: '', poltrona: '', guardado: {}, mascara: {} });
 // Pessoa do banco: os documentos já guardados não vêm para a tela (só mascarados); o servidor completa ao enviar.
 const daPessoa = (p) => {
   const guardado = Object.fromEntries(DOCS.map((k) => [k, !!p[`tem_${k}`]]));
   return {
-    pessoa_id: p.id || null, nome: p.nome || '', email: p.email || '', bu: p.bu || '', poltrona: '',
-    cpf: '', rg: '', nascimento: '', telefone: '', guardado, mascara: { cpf: p.cpf, rg: p.rg, telefone: p.telefone },
+    pessoa_id: p.id || null, nome: p.nome || '', bu: p.bu || '', poltrona: '',
+    // e-mail sem cadastro (ex.: a própria pessoa ainda fora do banco) continua editável
+    email: guardado.email ? '' : (p.email || ''),
+    cpf: '', rg: '', nascimento: '', telefone: '', guardado,
+    mascara: { cpf: p.cpf, rg: p.rg, nascimento: p.nascimento, telefone: p.telefone, email: p.email },
   };
 };
 const maskTel = (v) => {
@@ -133,7 +136,7 @@ function CartaoPassageiro({ i, x, bus, onChange, onRemover, podeRemover, eu }) {
         </Field>
         <Field label="RG *">{noCadastro('rg') || <input value={x.rg} onChange={(e) => set('rg', e.target.value)} />}</Field>
         <Field label="Data de nascimento *">{noCadastro('nascimento') || <input type="date" value={x.nascimento} max={hoje()} onChange={(e) => set('nascimento', e.target.value)} />}</Field>
-        <Field label="E-mail *"><input type="email" value={x.email} onChange={(e) => set('email', e.target.value)} /></Field>
+        <Field label="E-mail *">{noCadastro('email') || <input type="email" value={x.email} onChange={(e) => set('email', e.target.value)} />}</Field>
       </div>
       <div className="vg-grid-4">
         <Field label="Telefone para contato *">{noCadastro('telefone') || <input value={x.telefone} onChange={(e) => set('telefone', maskTel(e.target.value))} inputMode="tel" placeholder="(00) 00000-0000" />}</Field>

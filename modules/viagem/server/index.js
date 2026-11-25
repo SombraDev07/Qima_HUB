@@ -19,20 +19,27 @@ const HTML = (corpo) => `<div style="font-family:Segoe UI,Arial,sans-serif;font-
 const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const digitos = (v) => String(v ?? '').replace(/\D/g, '');
 
-// Dados pessoais (CPF, RG, nascimento, telefone) só aparecem inteiros para a Central. O solicitante vê mascarado
-// e sabe apenas que o dado já está no cadastro (tem_*): o servidor completa o pedido com o que está guardado.
-const DOCS = ['cpf', 'rg', 'nascimento', 'telefone'];
+// Dados pessoais (CPF, RG, nascimento, telefone, e-mail) só aparecem inteiros para a Central. O solicitante vê
+// o começo e o fim (o bastante para conferir se é a pessoa certa) e sabe que o dado já está no cadastro (tem_*):
+// o servidor completa o pedido com o que está guardado.
+const DOCS = ['cpf', 'rg', 'nascimento', 'telefone', 'email'];
+const temValor = (v) => !!String(v ?? '').trim();
+const meio = (s, ini, fim) => (s.length <= ini + fim ? `${s.slice(0, 1)}${'*'.repeat(Math.max(3, s.length - 1))}` : `${s.slice(0, ini)}${'*'.repeat(s.length - ini - fim)}${s.slice(s.length - fim)}`);
 function mascarar(x) {
   const cpf = digitos(x.cpf);
   const tel = digitos(x.telefone);
   const rg = String(x.rg ?? '').trim();
+  const email = String(x.email ?? '').trim();
+  const arroba = email.indexOf('@');
+  const nasc = /^(\d{4})-\d{2}-\d{2}/.exec(String(x.nascimento ?? ''));
   return {
     ...x,
-    cpf: cpf.length === 11 ? `***.${cpf.slice(3, 6)}.${cpf.slice(6, 9)}-**` : null,
-    rg: rg ? `•••${rg.slice(-2)}` : null,
-    nascimento: null,
-    telefone: tel.length >= 10 ? `(${tel.slice(0, 2)}) •••••-${tel.slice(-4)}` : null,
-    ...Object.fromEntries(DOCS.map((k) => [`tem_${k}`, !!String(x[k] ?? '').trim()])),
+    cpf: cpf.length === 11 ? `${cpf.slice(0, 3)}.***.***-${cpf.slice(9)}` : (cpf ? meio(cpf, 2, 2) : null), // 123.***.***-09
+    rg: rg ? meio(rg, 2, 2) : null, // 12*****-9
+    nascimento: nasc ? `**/**/${nasc[1]}` : null, // só o ano
+    telefone: tel.length >= 10 ? `(${tel.slice(0, 2)}) ${tel[2]}****-${tel.slice(-4)}` : (tel ? meio(tel, 2, 2) : null), // (11) 9****-1234
+    email: email ? (arroba > 0 ? `${meio(email.slice(0, arroba), 3, 0)}${email.slice(arroba)}` : meio(email, 3, 0)) : null, // and*****@empresa.com
+    ...Object.fromEntries(DOCS.map((k) => [`tem_${k}`, temValor(x[k])])),
   };
 }
 const trecho = (p) => `${p.origem}/${p.origem_uf} → ${p.destino}/${p.destino_uf}`;
@@ -122,10 +129,11 @@ export default {
     async function completarDaBase(t, lista) {
       if (!Array.isArray(lista)) return lista;
       const idsP = [...new Set(lista.map((x) => Number(x?.pessoa_id)).filter((n) => Number.isInteger(n) && n > 0))];
-      const base = idsP.length ? await t.all(`SELECT id, cpf, rg, to_char(nascimento, 'YYYY-MM-DD') AS nascimento, telefone, bu
+      const base = idsP.length ? await t.all(`SELECT id, cpf, rg, to_char(nascimento, 'YYYY-MM-DD') AS nascimento, telefone, bu, email
         FROM contratacao_banco WHERE id IN (${ids(idsP)})`) : [];
       const porId = new Map(base.map((b) => [b.id, b]));
-      const vazio = (v) => !String(v ?? '').trim();
+      // vazio ou ainda mascarado (com *): vale o que está no cadastro
+      const vazio = (v) => !String(v ?? '').trim() || String(v).includes('*');
       return lista.map((x) => {
         const b = x && porId.get(Number(x.pessoa_id));
         if (!b) return x && { ...x, pessoa_id: null };
@@ -271,7 +279,7 @@ export default {
     // ============================================================ CENTRAL
     // Abertos sempre; encerrados dos últimos 180 dias
     r.get('/central/pedidos', cen, ler(async () => completos(db, await db.all(`SELECT * FROM viagem_pedidos
-      WHERE status IN ('pendente','agendando') OR updated_at >= now() - interval '180 days' ORDER BY id DESC LIMIT 1000`))));
+      WHERE status IN ('pendente','agendando') OR updated_at >= now() - interval '180 days' ORDER BY id DESC LIMIT 1000`), { central: true })));
 
     r.post('/central/pedidos/:id/aceitar', cen, h(async (req, t) => {
       const p = await getPedido(t, req.params.id);
