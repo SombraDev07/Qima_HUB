@@ -2,7 +2,9 @@ import crypto from 'node:crypto';
 import { pg } from './pg.js';
 
 const COOKIE = 'qh_sid';
-const SESSION_MS = 12 * 60 * 60 * 1000; // 12h
+const SESSION_MS = 12 * 60 * 60 * 1000; // 12h: teto da sessão do site, mesmo em uso
+const INATIVIDADE_MS = 2 * 60 * 60 * 1000; // 2h sem uso: a sessão cai (computador deixado aberto)
+const MARCAR_USO_MS = 5 * 60 * 1000; // grava o "último uso" no máximo a cada 5 min (não a cada pedido)
 
 /** Rotas assíncronas no Express 4: um erro vira resposta 500 em vez de derrubar a requisição. */
 export const a = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
@@ -84,7 +86,7 @@ const hashSessao = (id) => crypto.createHash('sha256').update(String(id)).digest
 
 export async function createSession(res, userId) {
   const id = crypto.randomBytes(32).toString('hex');
-  await pg.run('INSERT INTO sessions (id, user_id, expires_at) VALUES (?, ?, ?)', hashSessao(id), userId, Date.now() + SESSION_MS);
+  await pg.run('INSERT INTO sessions (id, user_id, expires_at, ultimo_uso) VALUES (?, ?, ?, ?)', hashSessao(id), userId, Date.now() + SESSION_MS, Date.now());
   res.cookie(COOKIE, id, {
     httpOnly: true,
     sameSite: 'lax',
@@ -103,11 +105,21 @@ export async function destroySession(req, res) {
 export const loadUser = a(async (req, _res, next) => {
   const sid = parseCookies(req)[COOKIE];
   if (sid) {
-    req.user = await pg.get(`
-      SELECT u.id, u.name, u.email, u.is_admin
+    const agora = Date.now();
+    const s = await pg.get(`
+      SELECT u.id, u.name, u.email, u.is_admin, s.ultimo_uso
       FROM sessions s JOIN users u ON u.id = s.user_id
-      WHERE s.id = ? AND s.expires_at > ? AND u.active
-    `, hashSessao(sid), Date.now());
+      WHERE s.id = ? AND s.expires_at > ? AND (s.ultimo_uso IS NULL OR s.ultimo_uso > ?) AND u.active
+    `, hashSessao(sid), agora, agora - INATIVIDADE_MS);
+    if (s) {
+      const { ultimo_uso: ultimo, ...user } = s;
+      req.user = user;
+      // consulta automática (sininho a cada minuto) não conta como uso: só ação da pessoa mantém a sessão viva
+      const automatico = req.headers['x-automatico'] === '1';
+      if (!automatico && (!ultimo || agora - Number(ultimo) > MARCAR_USO_MS)) {
+        await pg.run('UPDATE sessions SET ultimo_uso = ? WHERE id = ?', agora, hashSessao(sid));
+      }
+    }
   }
   const bearer = !req.user && bearerDe(req);
   if (bearer) {

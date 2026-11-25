@@ -5,11 +5,12 @@ export class ApiError extends Error {
   }
 }
 
-export async function api(path, { method = 'GET', body } = {}) {
+/** automatico: consulta feita sozinha pela tela (ex.: sininho), que não conta como uso para a sessão não expirar. */
+export async function api(path, { method = 'GET', body, automatico = false } = {}) {
   const res = await fetch(path, {
     method,
     credentials: 'same-origin',
-    headers: body !== undefined ? { 'Content-Type': 'application/json' } : undefined,
+    headers: { ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}), ...(automatico ? { 'X-Automatico': '1' } : {}) },
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
   const data = await res.json().catch(() => ({}));

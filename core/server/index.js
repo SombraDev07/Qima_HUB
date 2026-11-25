@@ -32,6 +32,8 @@ app.disable('x-powered-by');
 app.use(cabecalhosSeguros);
 // Caminho com barra dupla (/api/m//x) é tratado de forma diferente por partes do Express: recusa logo na entrada
 app.use((req, res, next) => (req.path.includes('//') ? res.status(404).json({ error: 'Rota não encontrada' }) : next()));
+// Número gigante no lugar de um id (/pedidos/99999999999999999999) passava do limite do banco e virava erro 500: é 404
+app.use((req, res, next) => (/\/\d{10,}(\/|$)/.test(req.path) ? res.status(404).json({ error: 'Não encontrado' }) : next()));
 app.use(express.json({ limit: '1mb' }));
 // Texto que chega (corpo JSON e parâmetros da URL): tira o caractere nulo (o Postgres recusa e a gravação quebrava com erro 500)
 // e recusa campo com mais de 10.000 caracteres (nenhuma tela precisa disso; evita encher o banco com lixo).

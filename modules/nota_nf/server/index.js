@@ -248,7 +248,8 @@ export default {
     r.post('/enviar', sol, h(async (req, t) => {
       const sel = [...new Set((req.body?.notas || []).map(Number))];
       if (!sel.length) throw new RuleError('Adicione ao menos uma NF.');
-      const notas = await t.all(`SELECT * FROM nota_nf_notas WHERE id IN (${ids(sel)}) ORDER BY id`);
+      // FOR UPDATE: dois cliques/envios ao mesmo tempo ficam em fila; o segundo já vê as NFs enviadas e é recusado
+      const notas = await t.all(`SELECT * FROM nota_nf_notas WHERE id IN (${ids(sel)}) ORDER BY id FOR UPDATE`);
       if (notas.length !== sel.length) throw new RuleError('NF não encontrada', 404);
       const itens = await itensPorNota(t, notas);
       for (const n of notas) {

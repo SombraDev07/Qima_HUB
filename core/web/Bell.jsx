@@ -22,10 +22,11 @@ export default function Bell({ modulo, area }) {
   const navigate = useNavigate();
   const chave = `qh-sino-visto-${user?.id}${modulo ? `-${modulo}-${area}` : ''}`;
 
-  const carregar = useCallback(async () => {
+  const carregar = useCallback(async (auto) => {
     try {
-      // dentro de um sistema, o servidor só calcula as pendências dele
-      let d = await api(`/api/notificacoes${modulo ? `?modulo=${encodeURIComponent(modulo)}` : ''}`);
+      // dentro de um sistema, o servidor só calcula as pendências dele.
+      // A consulta de minuto em minuto vai marcada como automática: não conta como uso para a sessão por inatividade.
+      let d = await api(`/api/notificacoes${modulo ? `?modulo=${encodeURIComponent(modulo)}` : ''}`, { automatico: auto === true });
       if (modulo) {
         const prefixo = `/m/${modulo}/${area}`;
         const itens = d.itens.filter((n) => n.modulo === modulo && (n.link === prefixo || n.link.startsWith(`${prefixo}/`)));
@@ -40,7 +41,7 @@ export default function Bell({ modulo, area }) {
 
   useEffect(() => { carregar(); }, [location.pathname, carregar]);
   useEffect(() => {
-    const t = setInterval(carregar, INTERVALO);
+    const t = setInterval(() => carregar(true), INTERVALO);
     const atualizar = () => setTimeout(carregar, 300);
     window.addEventListener('qh:atualizar', atualizar);
     window.addEventListener('focus', carregar);

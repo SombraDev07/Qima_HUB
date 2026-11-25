@@ -23,6 +23,8 @@ CREATE TABLE IF NOT EXISTS sessions (
   expires_at BIGINT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS sessions_user ON sessions (user_id);
+-- último uso de verdade (ms): a sessão do site cai depois de 2 h sem uso, além do teto de 12 h em expires_at
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS ultimo_uso BIGINT;
 
 -- Estado administrável de cada módulo (o resto vem do module.json)
 CREATE TABLE IF NOT EXISTS modules (

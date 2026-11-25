@@ -243,7 +243,8 @@ export default {
       if (!sel.length) throw new RuleError('Adicione ao menos uma nota.');
       if (!PIX_TIPOS.includes(b.pix_tipo) || !String(b.pix_chave || '').trim()) throw new RuleError('Informe o tipo e a chave PIX para receber.');
       if (b.centro_custo && !cfg.centros.includes(b.centro_custo)) throw new RuleError('Centro de custo inválido.');
-      const notas = await t.all(`SELECT * FROM despesas_notas WHERE id IN (${ids(sel)}) ORDER BY id`);
+      // FOR UPDATE: dois envios ao mesmo tempo com as mesmas notas ficam em fila; o segundo vê as notas já enviadas e é recusado
+      const notas = await t.all(`SELECT * FROM despesas_notas WHERE id IN (${ids(sel)}) ORDER BY id FOR UPDATE`);
       if (notas.length !== sel.length) throw new RuleError('Nota não encontrada', 404);
       for (const n of notas) {
         if (n.dono_id !== req.user.id || n.status !== 'rascunho' || n.pedido_id) throw new RuleError('Uma das notas não pode ser enviada.');
@@ -253,7 +254,9 @@ export default {
       const { id: pid } = await t.get(`INSERT INTO despesas_pedidos (solicitante_id, solicitante_nome, solicitante_email, centro_custo, pix_tipo, pix_chave, obs_solicitante)
         VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id`, req.user.id, req.user.name, req.user.email, b.centro_custo || null, b.pix_tipo, pix, b.obs || null);
       await t.run('UPDATE despesas_pedidos SET codigo = ? WHERE id = ?', codigoPedido(pid), pid);
-      await t.run(`UPDATE despesas_notas SET pedido_id = ?, status = 'aguardando', centro_custo = COALESCE(?, centro_custo), updated_at = now() WHERE id IN (${ids(sel)})`, pid, b.centro_custo || null);
+      const mov = await t.run(`UPDATE despesas_notas SET pedido_id = ?, status = 'aguardando', centro_custo = COALESCE(?, centro_custo), updated_at = now()
+        WHERE id IN (${ids(sel)}) AND status = 'rascunho' AND pedido_id IS NULL AND dono_id = ?`, pid, b.centro_custo || null, req.user.id);
+      if (mov.rowCount !== sel.length) throw new RuleError('Uma das notas já foi enviada em outro pedido. Atualize a página.');
       await t.run(`INSERT INTO despesas_perfis (user_id, pix_tipo, pix_chave, centro_custo) VALUES (?, ?, ?, ?)
         ON CONFLICT (user_id) DO UPDATE SET pix_tipo = excluded.pix_tipo, pix_chave = excluded.pix_chave, centro_custo = excluded.centro_custo`,
       req.user.id, b.pix_tipo, pix, b.centro_custo || null);
